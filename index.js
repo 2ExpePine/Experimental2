@@ -81,6 +81,7 @@ async function loadCookies(page) {
       const values = await scrapeChart(page, url);
       const rowData = [...values];
       await writeValuesToNewSheet(globalIndex, rowData);
+      await new Promise((r) => setTimeout(r, 2000));
     } catch (err) {
       console.error(` Error scraping ${url}:`, err.message);
     }
