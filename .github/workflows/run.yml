@@ -24,9 +24,9 @@ jobs:
           echo "OUTPUT_SHEET=${{ secrets.OUTPUT_SHEET }}" >> .env
           echo "GOOGLE_SERVICE_ACCOUNT_EMAIL=${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}" >> .env
           echo "GOOGLE_PRIVATE_KEY=\"${{ secrets.GOOGLE_PRIVATE_KEY }}\"" >> .env
-          echo "ACCOUNT_START=0" >> .env
-          echo "ACCOUNT_END=1122" >> .env
-          echo "BATCH_SIZE=225" >> .env
+          echo "ACCOUNT_START=1122" >> .env
+          echo "ACCOUNT_END=2246" >> .env
+          echo "BATCH_SIZE=230" >> .env
 
       - run: echo "${{ secrets.COOKIES_BASE64 }}" | base64 -d > cookies.json
 
