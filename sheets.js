@@ -22,8 +22,18 @@ export async function getChartLinks() {
 }
 
 export async function writeValuesToNewSheet(row, values) {
+  const range = `${process.env.OUTPUT_SHEET}!B${row + 2}:AZ${row + 2}`;
+  const spreadsheetId = process.env.OUTPUT_SHEET_ID;
+
+  //Clear the existing row
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId,
+    range,
+  });
+
+  //Write the new values
   await sheets.spreadsheets.values.update({
-    spreadsheetId: process.env.OUTPUT_SHEET_ID,
+    spreadsheetId,
     range: `${process.env.OUTPUT_SHEET}!B${row + 2}`,
     valueInputOption: "RAW",
     requestBody: {
