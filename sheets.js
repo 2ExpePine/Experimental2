@@ -21,23 +21,30 @@ export async function getChartLinks() {
   return res.data.values.map(([url]) => url.replace(/"/g, "").trim());
 }
 
-export async function writeValuesToNewSheet(row, values) {
-  const range = `${process.env.OUTPUT_SHEET}!B${row + 2}:AZ${row + 2}`;
-  const spreadsheetId = process.env.OUTPUT_SHEET_ID;
+export async function writeBulkWithRetry(startRow, rows, maxRetry = 3) {
+  const ranges = rows.map(
+    (_, i) =>
+      `${process.env.OUTPUT_SHEET}!B${startRow + i + 2}:AZ${startRow + i + 2}`
+  );
+  const data = rows.map((vals, i) => ({
+    range: `${process.env.OUTPUT_SHEET}!B${startRow + i + 2}`,
+    values: [vals],
+  }));
 
-  //Clear the existing row
-  await sheets.spreadsheets.values.clear({
-    spreadsheetId,
-    range,
-  });
-
-  //Write the new values
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${process.env.OUTPUT_SHEET}!B${row + 2}`,
-    valueInputOption: "RAW",
-    requestBody: {
-      values: [values],
-    },
-  });
+  for (let tryNum = 1; tryNum <= maxRetry; tryNum++) {
+    try {
+      await sheets.spreadsheets.values.batchClear({
+        spreadsheetId: process.env.OUTPUT_SHEET_ID,
+        requestBody: { ranges },
+      });
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: process.env.OUTPUT_SHEET_ID,
+        requestBody: { valueInputOption: "RAW", data },
+      });
+      return;
+    } catch (e) {
+      if (tryNum === maxRetry) throw e;
+      await new Promise((r) => setTimeout(r, 2 ** tryNum * 1000));
+    }
+  }
 }

@@ -2,9 +2,10 @@ import puppeteer from "puppeteer";
 import fs from "fs";
 import { login } from "./login.js";
 import { scrapeChart } from "./scrape.js";
-import { getChartLinks, writeValuesToNewSheet } from "./sheets.js";
+import { getChartLinks, writeBulkWithRetry } from "./sheets.js";
 
 const COOKIE_PATH = "./cookies.json";
+const FLUSH_SIZE = 25;
 
 if (process.env.COOKIES_BASE64 && !fs.existsSync(COOKIE_PATH)) {
   const decoded = Buffer.from(process.env.COOKIES_BASE64, "base64").toString(
@@ -69,6 +70,8 @@ async function loadCookies(page) {
       process.exit(1);
     }
   }
+  let buffer = [];
+  let startRow = -1;
 
   for (let i = 0; i < batchLinks.length; i++) {
     const url = batchLinks[i];
@@ -80,8 +83,22 @@ async function loadCookies(page) {
     try {
       const values = await scrapeChart(page, url);
       const rowData = [...values];
-      await writeValuesToNewSheet(globalIndex, rowData);
-      await new Promise((r) => setTimeout(r, 2000));
+
+      if (buffer.length === 0) startRow = globalIndex;
+      buffer.push(rowData);
+
+      // Flush buffer every FLUSH_SIZE
+      const isLast = i === batchLinks.length - 1;
+      if (buffer.length === FLUSH_SIZE || isLast) {
+        console.log(
+          `Flushing ${buffer.length} rows starting at row ${startRow + 2}`
+        );
+        await writeBulkWithRetry(startRow, buffer);
+        buffer = [];
+        startRow = -1;
+      }
+
+      await new Promise((r) => setTimeout(r, 1000));
     } catch (err) {
       console.error(` Error scraping ${url}:`, err.message);
     }
