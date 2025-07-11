@@ -87,7 +87,7 @@ async function loadCookies(page) {
       if (buffer.length === 0) startRow = globalIndex;
       buffer.push(rowData);
 
-      // Flush buffer every FLUSH_SIZE
+      // Flush buffer every FLUSH_SIZE.
       const isLast = i === batchLinks.length - 1;
       if (buffer.length === FLUSH_SIZE || isLast) {
         console.log(
