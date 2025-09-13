@@ -31,3 +31,4 @@ jobs:
       - run: echo "${{ secrets.COOKIES_BASE64 }}" | base64 -d > cookies.json
 
       - run: node index.js ${{ matrix.batch }}
+
