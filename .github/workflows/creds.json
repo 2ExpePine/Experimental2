@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "newsscraper-367610",
+  "private_key_id": "269438d33bf60c9158670c1ea4e355174cd46f9e",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEuwIBADANBgkqhkiG9w0BAQEFAASCBKUwggShAgEAAoIBAQDmR27zlbz9oGe8\n/+yV2agGahe2GoBDdB1G7UjClIagiHBaykemt19MZgy1dspZrquVrLy8T4wM1w+v\n0Ws6m9C1z3p3YmXodGeQ66vzXxbeOHz7nBFNzISl62uNMQ1zkerNH3IbquNN8fTf\noa3t9Gj1EdBipms+VdANO+TQ1N0vNoKZlFv5LJrhx9ohERMii5t9IOjcp0RvCCj8\nw5WA13VjzLU2m2SIn55VgmTZHJYe5jEdenRRKzjGtxvDPLoxft6iyKVLsH7CDx6C\n2dNOFdG9VzDOKhXL+L8aiJhNvs2wsnXU0Bt8DHYn2FyyInPLUir2I12WMuPSqLG7\n9Wuircy1AgMBAAECgf8y0pEqMWIEl+JNVC5i5CaxQ7j39+FXAcl0XeoxB5au1230\nm7A0m0PtGJi1dAI0yNgVsIn3BZdjPhO4Of/wb3MgrSnaL11OcGJrGZhZniLt6Ims\n/kTTZs/fzpVuE+VkHFA19Tq54H1KNpxUvtokKkz/yW60VwZUO5wvT4iwjkpCoNn6\nvhXnraWC7dYCHeKHu6XJJksfMyWaL465kiYz5/04gOJjCoqjUvFluO5h8McVhiei\nLthWgoixCB+p1UYcfsHUZPfvhBETTzytxArkhzYEt0J1owP3px66UaU5R0WG8g5f\nxObAJ7myfiJylSEi6mxF9yFZ6NJNaB8S9axlSfcCgYEA+cV0Q2zcDgx5tFBqZgEs\nkNANcaW20kWqf1UYQwBw86mEYhRmm8mjkBi3PUzddEivxO9yxf0zMIirnF1WpDap\nbkv9xjMZbtTpM1PSz6+xgnap7+/StnZW8Esbiv0Y3kqxUvkhybrdwG8yL7Qi6+lM\nU/ypnMzzjd84rVWWm5485M8CgYEA7AWKR3R21HgT77o14tYTeZmbCT3ELxgADb2+\nBDwvQ/wD4lsuT90LjBoP5V+EotukWVeLLRm5LdfM5rnq5qgOrAkUSBQhPxZ822Da\n95K+dZQI4OxnWBDnpE6R38/cU/YDBjlbg4F+HFY+ubkMxlMXsd7Lv1oO+l8lmgJS\nXSIQHzsCgYANmSJrSVHxsdwuZPJl+0ph1/HjbhI2AHT32booa626llAOxu2PLbsp\n7S6Mt9KWsh5fqmmlPdO7oLU3Hh3JcvBmgNygHcgUsKLBmJ6xj+8qGyvFVFk0ddzl\n2DD3sC/aaladHdMpGHNaNrOUxUnhbiIpsGfLkZzw7GY5iZ9ZeZP3IQKBgAGe4B4x\nfIdk864XtzsBgUy6c0gS9n/kSEvP27gnuaNb3aL2QVEnEWc63pUSnNSJcY1zfm8m\n2BCqhKuo5yYCTWd9AHimOrw2KVFQTvCYP1qLU6xHs0X1h8GnEHVa9gZVkBvA1RII\nF5eWOAQKcz4BYA5Gm1uLAMNTV+zAy1P8YeP1AoGBAMJ94lTOOdi4w+nm3oFRS8PA\n03l1pxog1TwGXLaAfobzFYNcZBFWkw9z5lgDwnoawV9muQZHrX4j5YFVK36dfzV4\naxvMsMY+wZ172EX8oSVmFztRqKHDNZbt9V8rjBK4i2o4sYAfdKhKfvfeCGgvCFb+\nJuBV6GnHVIJjSJfvUTcX\n-----END PRIVATE KEY-----\n",
+  "client_email": "tradingviewscrapper@newsscraper-367610.iam.gserviceaccount.com",
+  "client_id": "117953298419291074777",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/tradingviewscrapper%40newsscraper-367610.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
