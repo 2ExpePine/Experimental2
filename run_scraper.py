@@ -1,4 +1,3 @@
-
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -15,20 +14,21 @@ import json
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ---------------- SHARDING (env-driven) ---------------- #
-# SHARD_INDEX: which shard am I (0..9). SHARD_STEP: total shards (10).
 SHARD_INDEX = int(os.getenv("SHARD_INDEX", "0"))
 SHARD_STEP = int(os.getenv("SHARD_STEP", "1"))
 
+# Range limits (for workflow batches)
+START_INDEX = int(os.getenv("START_INDEX", "1"))
+END_INDEX = int(os.getenv("END_INDEX", "2500"))
+
 # Allow workflow to pass a unique checkpoint filename per shard.
 checkpoint_file = os.getenv("CHECKPOINT_FILE", "checkpoint_new_1.txt")
-last_i = int(open(checkpoint_file).read()) if os.path.exists(checkpoint_file) else 1
+last_i = int(open(checkpoint_file).read()) if os.path.exists(checkpoint_file) else START_INDEX
 
 # ---------------- SETUP ---------------- #
 
-# Chrome Options
 chrome_options = Options()
-# Use the modern headless mode for reliability in CI
-chrome_options.add_argument("--headless=new")  # Selenium/Chrome recommend this form [web:27]
+chrome_options.add_argument("--headless=new")
 chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
@@ -40,7 +40,6 @@ try:
     gc = gspread.service_account("credentials.json")
 except Exception as e:
     print(f"Error loading credentials.json: {e}")
-    print("Ensure 'credentials.json' exists or has been created by GitHub Actions.")
     exit(1)
 
 sheet_main = gc.open('Stock List').worksheet('Sheet1')
@@ -83,7 +82,7 @@ def scrape_tradingview(company_url):
 
         soup = BeautifulSoup(driver.page_source, "html.parser")
         values = [
-            el.get_text().replace('−', '-').replace('∅', 'None')
+            el.get_text().replace('−', '-').replace('∅', '').strip()
             for el in soup.find_all("div", class_="valueValue-l31H9iuA apply-common-tooltip")
         ]
         return values
@@ -99,12 +98,16 @@ def scrape_tradingview(company_url):
 
 # ---------------- MAIN LOOP (matrix-aware) ---------------- #
 for i, company_url in enumerate(company_list[last_i:], last_i):
-    # Shard filter: only process indices that belong to this shard
+    # Range control (for workflow split)
+    if i < START_INDEX or i > END_INDEX:
+        continue
+
+    # Shard filter
     if i % SHARD_STEP != SHARD_INDEX:
         continue
 
-    if i > 2500:
-        print("Reached scraping limit (i > 2500). Stopping.")
+    if i > END_INDEX:
+        print("Reached scraping limit for this batch. Stopping.")
         break
 
     name = name_list[i] if i < len(name_list) else f"Row {i}"
@@ -113,15 +116,12 @@ for i, company_url in enumerate(company_list[last_i:], last_i):
     values = scrape_tradingview(company_url)
     if values:
         row = [name, current_date] + values
-        # Note: if you see rate-limit errors, consider batching or backoff
-        sheet_data.append_row(row, table_range='A1')  # gspread append_row; see rate limits docs if needed [web:7][web:26]
-        print(f"Successfully scraped and saved data for {name}.")
+        sheet_data.append_row(row, table_range='A1')
+        print(f"✅ Successfully scraped and saved data for {name}.")
     else:
-        print(f"Skipping {name}: No data scraped.")
+        print(f"⚠️ Skipping {name}: No data scraped.")
 
     with open(checkpoint_file, "w") as f:
         f.write(str(i))
 
     time.sleep(1)
-
-
