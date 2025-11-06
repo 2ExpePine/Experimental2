@@ -11,22 +11,20 @@ from datetime import date
 import os
 import time
 import json
+import pandas as pd
+import requests
+from io import BytesIO
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ---------------- SHARDING (env-driven) ---------------- #
 SHARD_INDEX = int(os.getenv("SHARD_INDEX", "0"))
 SHARD_STEP = int(os.getenv("SHARD_STEP", "1"))
-
-# Range limits (for workflow batches)
 START_INDEX = int(os.getenv("START_INDEX", "1"))
 END_INDEX = int(os.getenv("END_INDEX", "2500"))
-
-# Allow workflow to pass a unique checkpoint filename per shard.
 checkpoint_file = os.getenv("CHECKPOINT_FILE", "checkpoint_new_1.txt")
 last_i = int(open(checkpoint_file).read()) if os.path.exists(checkpoint_file) else START_INDEX
 
 # ---------------- SETUP ---------------- #
-
 chrome_options = Options()
 chrome_options.add_argument("--headless=new")
 chrome_options.add_argument("--disable-gpu")
@@ -35,18 +33,31 @@ chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--remote-debugging-port=9222")
 
 # ---------------- GOOGLE SHEETS AUTH ---------------- #
-
 try:
     gc = gspread.service_account("credentials.json")
 except Exception as e:
     print(f"Error loading credentials.json: {e}")
     exit(1)
 
-sheet_main = gc.open('Stock List').worksheet('Sheet1')
 sheet_data = gc.open('Tradingview Data Reel Experimental May').worksheet('Sheet5')
 
-company_list = sheet_main.col_values(5)
-name_list = sheet_main.col_values(1)
+# ---------------- READ STOCK LIST FROM GITHUB EXCEL ---------------- #
+print("📥 Fetching stock list from GitHub Excel...")
+
+try:
+    EXCEL_URL = "https://raw.githubusercontent.com/Lavit-sharma/stock_raja/main/Stock%20List.xlsx"
+    response = requests.get(EXCEL_URL)
+    response.raise_for_status()
+
+    df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
+    name_list = df.iloc[:, 0].fillna("").tolist()   # Column A - Name
+    company_list = df.iloc[:, 4].fillna("").tolist()  # Column E - URL
+
+    print(f"✅ Loaded {len(company_list)} companies from GitHub Excel.")
+except Exception as e:
+    print(f"❌ Error reading Excel from GitHub: {e}")
+    exit(1)
+
 current_date = date.today().strftime("%m/%d/%Y")
 
 # ---------------- SCRAPER FUNCTION ---------------- #
@@ -71,9 +82,7 @@ def scrape_tradingview(company_url):
             time.sleep(2)
         else:
             print("⚠️ cookies.json not found. Proceeding without login may limit data.")
-            pass
 
-        # AFTER LOGIN, OPEN THE TARGET URL
         driver.get(company_url)
         WebDriverWait(driver, 45).until(
             EC.visibility_of_element_located((By.XPATH,
@@ -96,19 +105,12 @@ def scrape_tradingview(company_url):
     finally:
         driver.quit()
 
-# ---------------- MAIN LOOP (matrix-aware) ---------------- #
+# ---------------- MAIN LOOP ---------------- #
 for i, company_url in enumerate(company_list[last_i:], last_i):
-    # Range control (for workflow split)
     if i < START_INDEX or i > END_INDEX:
         continue
-
-    # Shard filter
     if i % SHARD_STEP != SHARD_INDEX:
         continue
-
-    if i > END_INDEX:
-        print("Reached scraping limit for this batch. Stopping.")
-        break
 
     name = name_list[i] if i < len(name_list) else f"Row {i}"
     print(f"Scraping {i}: {name} | {company_url}")
@@ -116,8 +118,11 @@ for i, company_url in enumerate(company_list[last_i:], last_i):
     values = scrape_tradingview(company_url)
     if values:
         row = [name, current_date] + values
-        sheet_data.append_row(row, table_range='A1')
-        print(f"✅ Successfully scraped and saved data for {name}.")
+        try:
+            sheet_data.append_row(row, table_range='A1')
+            print(f"✅ Successfully scraped and saved data for {name}.")
+        except Exception as e:
+            print(f"⚠️ Failed to append for {name}: {e}")
     else:
         print(f"⚠️ Skipping {name}: No data scraped.")
 
