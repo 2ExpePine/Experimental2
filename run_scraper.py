@@ -45,7 +45,7 @@ sheet_data = gc.open('Tradingview Data Reel Experimental May').worksheet('Sheet5
 print("📥 Fetching stock list from GitHub Excel...")
 
 try:
-    EXCEL_URL = "https://raw.githubusercontent.com/Lavit-sharma/stock_raja/main/Stock%20List.xlsx"
+    EXCEL_URL = "https://raw.githubusercontent.com/2ExpePine/Experimental2/main/Stock%20List.xlsx"
     response = requests.get(EXCEL_URL)
     response.raise_for_status()
 
