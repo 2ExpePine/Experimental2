@@ -1,7 +1,9 @@
-name: TradingView Scraper
+name: TradingView Scraper (Part 2 - Stocks 1001–2000)
 
 on:
-  workflow_dispatch:   # only manual trigger now
+  schedule:
+    - cron: '30 1 * * *'
+  workflow_dispatch:
 
 jobs:
   scrape:
@@ -13,6 +15,8 @@ jobs:
     env:
       SHARD_INDEX: ${{ matrix.shard }}
       SHARD_STEP: 10
+      START_INDEX: 1001
+      END_INDEX: 2000
     steps:
       - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
@@ -34,10 +38,12 @@ jobs:
 
       - name: ⚙️ Create Checkpoint File (matrix-aware)
         run: |
-          FILE="checkpoint_new_1_${{ matrix.shard }}.txt"
-          if [ ! -f "$FILE" ]; then echo "1" > "$FILE"; fi
+          FILE="checkpoint_part2_${{ matrix.shard }}.txt"
+          if [ ! -f "$FILE" ]; then echo "${{ env.START_INDEX }}" > "$FILE"; fi
 
       - name: 🚀 Run Scraper Script
         env:
-          CHECKPOINT_FILE: checkpoint_new_1_${{ matrix.shard }}.txt
+          CHECKPOINT_FILE: checkpoint_part2_${{ matrix.shard }}.txt
+          START_INDEX: ${{ env.START_INDEX }}
+          END_INDEX: ${{ env.END_INDEX }}
         run: python run_scraper.py
