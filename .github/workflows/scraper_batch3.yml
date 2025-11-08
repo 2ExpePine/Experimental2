@@ -2,6 +2,8 @@ name: TradingView Scraper Group 3 (Shards 10–14)
 
 on:
   workflow_dispatch:
+  repository_dispatch:
+    types: [trigger-scraper-batch3]
 
 jobs:
   scrape:
@@ -13,13 +15,16 @@ jobs:
     env:
       SHARD_STEP: 20
     steps:
-      - uses: actions/checkout@v4
+      - name: ⬇️ Checkout Repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - run: |
+      - name: 📦 Install dependencies
+        run: |
           pip install selenium beautifulsoup4 gspread webdriver-manager
 
       - name: 🔑 Set up Google Credentials
