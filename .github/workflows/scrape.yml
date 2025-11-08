@@ -1,9 +1,9 @@
-name: TradingView Scraper (Part 3 - Stocks 1001–1500)
+name: TradingView Scraper Group 1 (Shards 0–4)
 
 on:
-  schedule:
-    - cron: '30 1 * * *'
   workflow_dispatch:
+  schedule:
+    - cron: '0 1 * * *'
 
 jobs:
   scrape:
@@ -11,42 +11,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0,1,2,3,4,5,6,7,8,9]
-
-    env:
-      SHARD_INDEX: ${{ matrix.shard }}
-      SHARD_STEP: 10
-      START_INDEX: 1001
-      END_INDEX: 1500
+        shard: [0, 1, 2, 3, 4]   # 5 jobs in this YAML
 
     steps:
-      - name: ⬇️ Checkout Repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: 🐍 Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: 📦 Install dependencies
+      - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install pandas openpyxl requests selenium beautifulsoup4 webdriver-manager gspread
+          python -m pip install --upgrade pip
+          pip install selenium beautifulsoup4 gspread webdriver-manager
 
-      - name: 🔑 Set up Google Credentials
-        run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
-
-      - name: 🍪 Set up TradingView Cookies
-        run: echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
-
-      - name: ⚙️ Create Checkpoint File
-        run: |
-          FILE="checkpoint_part3_${{ matrix.shard }}.txt"
-          if [ ! -f "$FILE" ]; then echo "${{ env.START_INDEX }}" > "$FILE"; fi
-
-      - name: 🚀 Run Scraper Script
+      - name: Run scraper
         env:
-          CHECKPOINT_FILE: checkpoint_part3_${{ matrix.shard }}.txt
-          START_INDEX: ${{ env.START_INDEX }}
-          END_INDEX: ${{ env.END_INDEX }}
-        run: python run_scraper.py
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_STEP: 20  # total 20 shards across all 4 YAMLs
+          CHECKPOINT_FILE: checkpoint_${{ matrix.shard }}.txt
+        run: |
+          python run_scraper.py
