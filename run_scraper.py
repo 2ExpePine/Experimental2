@@ -11,9 +11,9 @@ from datetime import date
 import os
 import time
 import json
-import pandas as pd
 import requests
 from io import BytesIO
+from openpyxl import load_workbook
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ---------------- SHARDING (env-driven) ---------------- #
@@ -41,19 +41,38 @@ except Exception as e:
 
 sheet_data = gc.open('Tradingview Data Reel Experimental May').worksheet('Sheet5')
 
-# ---------------- READ STOCK LIST FROM GITHUB EXCEL ---------------- #
-print("📥 Fetching stock list from GitHub Excel...")
+# ---------------- READ STOCK LIST FROM GITHUB EXCEL (BATCH MODE) ---------------- #
+print("📥 Fetching stock list from GitHub Excel in batches...")
 
 try:
-    EXCEL_URL = "https://raw.githubusercontent.com/2ExpePine/Experimental2/main/Stock%20List.xlsx"
+    EXCEL_URL = "https://raw.githubusercontent.com/Lavit-sharma/stock_raja/main/Stock%20List.xlsx"
     response = requests.get(EXCEL_URL)
     response.raise_for_status()
 
-    df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
-    name_list = df.iloc[:, 0].fillna("").tolist()   # Column A - Name
-    company_list = df.iloc[:, 4].fillna("").tolist()  # Column E - URL
+    # Load workbook in streaming mode
+    wb = load_workbook(BytesIO(response.content), read_only=True)
+    ws = wb.active  # assuming data is in first sheet
 
-    print(f"✅ Loaded {len(company_list)} companies from GitHub Excel.")
+    name_list = []
+    company_list = []
+
+    BATCH_READ_SIZE = 500  # read 500 rows at a time
+
+    for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        if row_idx == 1:
+            continue  # skip header if present
+
+        name = row[0] if len(row) > 0 and row[0] else ""
+        company = row[4] if len(row) > 4 and row[4] else ""
+
+        name_list.append(str(name))
+        company_list.append(str(company))
+
+        if row_idx % BATCH_READ_SIZE == 0:
+            print(f"📄 Loaded {row_idx} rows so far...")
+
+    print(f"✅ Loaded {len(company_list)} companies (batch read).")
+
 except Exception as e:
     print(f"❌ Error reading Excel from GitHub: {e}")
     exit(1)
