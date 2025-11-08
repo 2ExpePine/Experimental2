@@ -1,0 +1,67 @@
+name: 🗂️ Sequential Scraper Deployment
+
+on:
+  # Allows manual triggering from the GitHub UI for controlled deployments.
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Select Deployment Environment'
+        required: true
+        default: 'testing'
+        type: choice
+        options:
+          - testing
+          - production
+
+jobs:
+  run_sequential_scrapers:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: ⬇️ Checkout Repository Code
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------------------
+      # ⚠️ IMPORTANT SETUP STEP (Modify for your actual tool/environment)
+      # -------------------------------------------------------------------
+      # If these are K8s jobs, you would set up kubectl here (see previous example).
+      # If they are for a custom tool, you might need to:
+      # 1. Download/install that tool.
+      # 2. Configure authentication (e.g., via GitHub Secrets).
+      
+      - name: Placeholder Step - Setup Tool
+        # Replace this with actual setup commands if needed
+        run: echo "Assuming necessary tools are available or will be installed in the next step."
+
+
+      - name: 🏃 Run Sequential Scraper Batches with 5-second Gaps
+        run: |
+          # Define the delay time in seconds
+          DELAY=5
+          
+          # --- Start of Sequential Execution ---
+          
+          echo "Applying scraper_batch1.yml..."
+          # *** Replace 'kubectl apply -f' with your actual command ***
+          kubectl apply -f scraper_batch1.yml
+          
+          echo "Pausing for $DELAY seconds..."
+          sleep $DELAY
+          
+          echo "Applying scraper_batch2.yml..."
+          kubectl apply -f scraper_batch2.yml
+          
+          echo "Pausing for $DELAY seconds..."
+          sleep $DELAY
+          
+          echo "Applying scraper_batch3.yml..."
+          kubectl apply -f scraper_batch3.yml
+          
+          echo "Pausing for $DELAY seconds..."
+          sleep $DELAY
+          
+          echo "Applying scraper_batch4.yml..."
+          kubectl apply -f scraper_batch4.yml
+          
+          echo "✅ All four scraper batches have been applied sequentially."
