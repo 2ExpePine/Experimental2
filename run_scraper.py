@@ -11,20 +11,15 @@ from datetime import date
 import os
 import time
 import json
-import requests
-from io import BytesIO
-from openpyxl import load_workbook
 from webdriver_manager.chrome import ChromeDriverManager
 
-# ---------------- SHARDING (env-driven) ---------------- #
+# ---------------- SHARDING ---------------- #
 SHARD_INDEX = int(os.getenv("SHARD_INDEX", "0"))
 SHARD_STEP = int(os.getenv("SHARD_STEP", "1"))
-START_INDEX = int(os.getenv("START_INDEX", "1"))
-END_INDEX = int(os.getenv("END_INDEX", "2500"))
-checkpoint_file = os.getenv("CHECKPOINT_FILE", "checkpoint_new_1.txt")
-last_i = int(open(checkpoint_file).read()) if os.path.exists(checkpoint_file) else START_INDEX
+checkpoint_file = os.getenv("CHECKPOINT_FILE", f"checkpoint_{SHARD_INDEX}.txt")
+last_i = int(open(checkpoint_file).read()) if os.path.exists(checkpoint_file) else 1
 
-# ---------------- SETUP ---------------- #
+# ---------------- CHROME SETUP ---------------- #
 chrome_options = Options()
 chrome_options.add_argument("--headless=new")
 chrome_options.add_argument("--disable-gpu")
@@ -39,130 +34,96 @@ except Exception as e:
     print(f"Error loading credentials.json: {e}")
     exit(1)
 
+sheet_main = gc.open('Stock List').worksheet('Sheet1')
 sheet_data = gc.open('Tradingview Data Reel Experimental May').worksheet('Sheet5')
 
-# ---------------- READ STOCK LIST FROM GITHUB EXCEL (BATCH MODE) ---------------- #
-print("📥 Fetching stock list from GitHub Excel in batches...")
-
-try:
-    EXCEL_URL = "https://raw.githubusercontent.com/Lavit-sharma/stock_raja/main/Stock%20List.xlsx"
-    response = requests.get(EXCEL_URL)
-    response.raise_for_status()
-
-    wb = load_workbook(BytesIO(response.content), read_only=True)
-    ws = wb.active
-
-    name_list = []
-    company_list = []
-
-    BATCH_READ_SIZE = 500  # read 500 rows at a time
-
-    for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
-        if row_idx == 1:
-            continue  # skip header
-
-        name = row[0] if len(row) > 0 and row[0] else ""
-        company = row[4] if len(row) > 4 and row[4] else ""
-
-        name_list.append(str(name))
-        company_list.append(str(company))
-
-        if row_idx % BATCH_READ_SIZE == 0:
-            print(f"📄 Loaded {row_idx} rows so far...")
-
-    print(f"✅ Loaded {len(company_list)} companies (batch read).")
-
-except Exception as e:
-    print(f"❌ Error reading Excel from GitHub: {e}")
-    exit(1)
-
+# Batch read once
+company_list = sheet_main.col_values(5)
+name_list = sheet_main.col_values(1)
 current_date = date.today().strftime("%m/%d/%Y")
 
-# ---------------- SCRAPER FUNCTION ---------------- #
-def scrape_tradingview(company_url):
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    driver.set_window_size(1920, 1080)
+# ---------------- SCRAPER ---------------- #
+def scrape_tradingview(driver, company_url):
     try:
-        # LOGIN USING SAVED COOKIES
-        if os.path.exists("cookies.json"):
-            driver.get("https://www.tradingview.com/")
-            with open("cookies.json", "r", encoding="utf-8") as f:
-                cookies = json.load(f)
-            for cookie in cookies:
-                try:
-                    cookie_to_add = {k: cookie[k] for k in ('name', 'value', 'domain', 'path') if k in cookie}
-                    cookie_to_add['secure'] = cookie.get('secure', False)
-                    cookie_to_add['httpOnly'] = cookie.get('httpOnly', False)
-                    driver.add_cookie(cookie_to_add)
-                except Exception:
-                    pass
-            driver.refresh()
-            time.sleep(2)
-        else:
-            print("⚠️ cookies.json not found. Proceeding without login may limit data.")
-
         driver.get(company_url)
         WebDriverWait(driver, 45).until(
             EC.visibility_of_element_located((By.XPATH,
                 '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'))
         )
-
         soup = BeautifulSoup(driver.page_source, "html.parser")
         values = [
-            el.get_text().replace('−', '-').replace('∅', '').strip()
+            el.get_text().replace('−', '-').replace('∅', 'None')
             for el in soup.find_all("div", class_="valueValue-l31H9iuA apply-common-tooltip")
         ]
         return values
-
     except NoSuchElementException:
-        print(f"Data element not found for URL: {company_url}")
         return []
     except Exception as e:
-        print(f"An error occurred during scraping for {company_url}: {e}")
+        print(f"Error scraping {company_url}: {e}")
         return []
-    finally:
-        driver.quit()
 
-# ---------------- MAIN LOOP WITH BATCH WRITING ---------------- #
-buffer_rows = []
-BATCH_WRITE_SIZE = 50  # write after every 50 entries
+# ---------------- MAIN LOOP ---------------- #
+driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+
+# Load cookies (once per shard)
+if os.path.exists("cookies.json"):
+    driver.get("https://www.tradingview.com/")
+    with open("cookies.json", "r", encoding="utf-8") as f:
+        cookies = json.load(f)
+    for cookie in cookies:
+        try:
+            cookie_to_add = {k: cookie[k] for k in ('name', 'value', 'domain', 'path') if k in cookie}
+            cookie_to_add['secure'] = cookie.get('secure', False)
+            cookie_to_add['httpOnly'] = cookie.get('httpOnly', False)
+            driver.add_cookie(cookie_to_add)
+        except Exception:
+            pass
+    driver.refresh()
+    time.sleep(2)
+else:
+    print("⚠️ cookies.json not found, scraping without login")
+
+buffer = []
+BATCH_SIZE = 50
 
 for i, company_url in enumerate(company_list[last_i:], last_i):
-    if i < START_INDEX or i > END_INDEX:
-        continue
     if i % SHARD_STEP != SHARD_INDEX:
         continue
+    if i > 2500:
+        print("Reached scraping limit.")
+        break
 
     name = name_list[i] if i < len(name_list) else f"Row {i}"
-    print(f"Scraping {i}: {name} | {company_url}")
+    print(f"Scraping {i}: {name}")
 
-    values = scrape_tradingview(company_url)
+    values = scrape_tradingview(driver, company_url)
     if values:
-        row = [name, current_date] + values
-        buffer_rows.append(row)
-        print(f"✅ Added {name} to buffer ({len(buffer_rows)}/{BATCH_WRITE_SIZE})")
-
-        if len(buffer_rows) >= BATCH_WRITE_SIZE:
-            try:
-                sheet_data.append_rows(buffer_rows, value_input_option='RAW')
-                print(f"📝 Appended {len(buffer_rows)} rows to Google Sheet.")
-                buffer_rows.clear()
-                time.sleep(2)
-            except Exception as e:
-                print(f"⚠️ Failed to batch append: {e}")
-                time.sleep(5)
+        buffer.append([name, current_date] + values)
     else:
-        print(f"⚠️ Skipping {name}: No data scraped.")
+        print(f"Skipping {name}: no data")
 
+    # Write checkpoint
     with open(checkpoint_file, "w") as f:
         f.write(str(i))
 
+    # Write every 50 rows
+    if len(buffer) >= BATCH_SIZE:
+        try:
+            sheet_data.append_rows(buffer, table_range='A1')
+            print(f"✅ Wrote batch of {len(buffer)} rows.")
+            buffer.clear()
+        except Exception as e:
+            print(f"⚠️ Batch write failed: {e}")
+
     time.sleep(1)
 
-# Write any leftover buffered rows
-if buffer_rows:
+# Final flush
+if buffer:
     try:
-        sheet_data.append_rows(buffer_rows, value_input_option='RAW')
-        print(f"📝 Final append of {len(buffer_rows)} rows.")
+        sheet_data.append_rows(buffer, table_range='A1')
+        print(f"✅ Final batch of {len(buffer)} rows written.")
     except Exception as e:
-        print(f"⚠️ Final append failed: {e}")
+        print(f"⚠️ Final write failed: {e}")
+
+driver.quit()
+print("All done ✅")
