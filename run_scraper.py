@@ -49,9 +49,8 @@ try:
     response = requests.get(EXCEL_URL)
     response.raise_for_status()
 
-    # Load workbook in streaming mode
     wb = load_workbook(BytesIO(response.content), read_only=True)
-    ws = wb.active  # assuming data is in first sheet
+    ws = wb.active
 
     name_list = []
     company_list = []
@@ -60,7 +59,7 @@ try:
 
     for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
         if row_idx == 1:
-            continue  # skip header if present
+            continue  # skip header
 
         name = row[0] if len(row) > 0 and row[0] else ""
         company = row[4] if len(row) > 4 and row[4] else ""
@@ -124,7 +123,10 @@ def scrape_tradingview(company_url):
     finally:
         driver.quit()
 
-# ---------------- MAIN LOOP ---------------- #
+# ---------------- MAIN LOOP WITH BATCH WRITING ---------------- #
+buffer_rows = []
+BATCH_WRITE_SIZE = 50  # write after every 50 entries
+
 for i, company_url in enumerate(company_list[last_i:], last_i):
     if i < START_INDEX or i > END_INDEX:
         continue
@@ -137,11 +139,18 @@ for i, company_url in enumerate(company_list[last_i:], last_i):
     values = scrape_tradingview(company_url)
     if values:
         row = [name, current_date] + values
-        try:
-            sheet_data.append_row(row, table_range='A1')
-            print(f"✅ Successfully scraped and saved data for {name}.")
-        except Exception as e:
-            print(f"⚠️ Failed to append for {name}: {e}")
+        buffer_rows.append(row)
+        print(f"✅ Added {name} to buffer ({len(buffer_rows)}/{BATCH_WRITE_SIZE})")
+
+        if len(buffer_rows) >= BATCH_WRITE_SIZE:
+            try:
+                sheet_data.append_rows(buffer_rows, value_input_option='RAW')
+                print(f"📝 Appended {len(buffer_rows)} rows to Google Sheet.")
+                buffer_rows.clear()
+                time.sleep(2)
+            except Exception as e:
+                print(f"⚠️ Failed to batch append: {e}")
+                time.sleep(5)
     else:
         print(f"⚠️ Skipping {name}: No data scraped.")
 
@@ -149,3 +158,11 @@ for i, company_url in enumerate(company_list[last_i:], last_i):
         f.write(str(i))
 
     time.sleep(1)
+
+# Write any leftover buffered rows
+if buffer_rows:
+    try:
+        sheet_data.append_rows(buffer_rows, value_input_option='RAW')
+        print(f"📝 Final append of {len(buffer_rows)} rows.")
+    except Exception as e:
+        print(f"⚠️ Final append failed: {e}")
