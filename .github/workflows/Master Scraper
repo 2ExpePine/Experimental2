@@ -1,0 +1,35 @@
+name: 🔁 Master Scraper Trigger
+
+on:
+  workflow_dispatch:  # manual trigger
+  # Uncomment if you also want it on a schedule
+  # schedule:
+  #   - cron: '0 1 * * *'  # runs daily at 01:00 UTC (~06:30 IST)
+
+jobs:
+  trigger-all:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🚀 Trigger Batch 1
+        uses: peter-evans/workflow-dispatch@v2
+        with:
+          workflow: scraper_batch1.yml
+          ref: main
+
+      - name: 🚀 Trigger Batch 2
+        uses: peter-evans/workflow-dispatch@v2
+        with:
+          workflow: scraper_batch2.yml
+          ref: main
+
+      - name: 🚀 Trigger Batch 3
+        uses: peter-evans/workflow-dispatch@v2
+        with:
+          workflow: scraper_batch3.yml
+          ref: main
+
+      - name: 🚀 Trigger Batch 4
+        uses: peter-evans/workflow-dispatch@v2
+        with:
+          workflow: scraper_batch4.yml
+          ref: main
