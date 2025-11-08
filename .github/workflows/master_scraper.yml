@@ -1,42 +1,29 @@
-name: Master Scraper Trigger
-
 on:
   workflow_dispatch:
 
 jobs:
-  trigger-scrapers:
+  scraper1:
+    uses: ./.github/workflows/scraper_batch1.yml
+
+  scraper2:
+    uses: ./.github/workflows/scraper_batch2.yml
+
+  wait3:
     runs-on: ubuntu-latest
+    needs: [scraper1, scraper2]
     steps:
-      - name: Trigger scraper_batch1
-        run: |
-          echo "🚀 Triggering scraper_batch1..."
-          gh api repos/${{ github.repository }}/dispatches \
-            -f event_type=trigger-scraper-batch1 &
+      - run: sleep 300  # wait 5 minutes
 
-      - name: Trigger scraper_batch2 (simultaneously)
-        run: |
-          echo "🚀 Triggering scraper_batch2..."
-          gh api repos/${{ github.repository }}/dispatches \
-            -f event_type=trigger-scraper-batch2 &
+  scraper3:
+    uses: ./.github/workflows/scraper_batch3.yml
+    needs: wait3
 
-      - name: Wait 5 minutes before scraper_batch3
-        run: |
-          echo "⏳ Waiting 5 minutes..."
-          sleep 300
+  wait4:
+    runs-on: ubuntu-latest
+    needs: scraper3
+    steps:
+      - run: sleep 180  # wait 3 minutes
 
-      - name: Trigger scraper_batch3
-        run: |
-          echo "🚀 Triggering scraper_batch3..."
-          gh api repos/${{ github.repository }}/dispatches \
-            -f event_type=trigger-scraper-batch3
-
-      - name: Wait 3 minutes before scraper_batch4
-        run: |
-          echo "⏳ Waiting 3 minutes..."
-          sleep 180
-
-      - name: Trigger scraper_batch4
-        run: |
-          echo "🚀 Triggering scraper_batch4..."
-          gh api repos/${{ github.repository }}/dispatches \
-            -f event_type=trigger-scraper-batch4
+  scraper4:
+    uses: ./.github/workflows/scraper_batch4.yml
+    needs: wait4
