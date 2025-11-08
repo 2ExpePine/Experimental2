@@ -1,7 +1,7 @@
 name: 🔁 Master Scraper Trigger
 
 on:
-  workflow_dispatch:  # manually triggered
+  workflow_dispatch:
 
 jobs:
   trigger-all:
