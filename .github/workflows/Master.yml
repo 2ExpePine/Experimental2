@@ -1,4 +1,4 @@
-name: 🔄 Timed Scraper Batch Orchestrator
+name: 🔄 Master Timed Scraper Batch 
 
 on:
   workflow_dispatch:
