@@ -46,13 +46,13 @@ jobs:
 
 
       # -----------------------------------------------------------------
-      # --- STEP 2: Wait 10 Minutes ---
-      - name: ⏳ Wait for 10 minutes (Before Batch 3)
+      # --- STEP 2: Wait 12 Minutes ---
+      - name: ⏳ Wait for 12 minutes (Before Batch 3)
         uses: actions/github-script@v6
         with:
           script: |
-            // Delay for 10 minutes (10 * 60 * 1000 milliseconds)
-            const delay = 10 * 60 * 1000; 
+            // Delay for 10 minutes (12 * 60 * 1000 milliseconds)
+            const delay = 12 * 60 * 1000; 
             console.log(`Waiting for ${delay / 1000 / 60} minutes...`);
             await new Promise(resolve => setTimeout(resolve, delay));
             console.log('Wait complete, proceeding to Batch 3.');
@@ -79,7 +79,7 @@ jobs:
 
 
       # -----------------------------------------------------------------
-      # --- STEP 4: Wait 5 Minutes ---
+      # --- STEP 4: Wait 3 Minutes ---
       - name: ⏳ Wait for 3 minutes (Before Batch 4)
         uses: actions/github-script@v6
         with:
