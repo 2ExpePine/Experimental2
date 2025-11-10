@@ -20,8 +20,9 @@ jobs:
       - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
 
+      # -----------------------------------------------------------------
       # --- STEP 1: Simultaneously Trigger Batch 1 and Batch 2 ---
-      - name: 🚀 Trigger Batch 1 and Batch 2
+      - name: 🚀 Trigger Batch 1 and Batch 2 (Concurrent Group 1)
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -33,79 +34,59 @@ jobs:
                 repo: context.repo.repo,
                 workflow_id: workflowFile,
                 ref: context.ref,
-                inputs: {} // Add inputs if your child workflows require them
+                inputs: {} 
               });
               console.log(`Successfully dispatched ${workflowFile}`);
             };
 
-            // Trigger scraper_batch1.yml
+            // Trigger scraper_batch1.yml simultaneously
             dispatch('scraper_batch1.yml'); 
             
-            // Trigger scraper_batch2.yml (Note: No 'await' for the first dispatch ensures they start nearly simultaneously)
+            // Trigger scraper_batch2.yml simultaneously
             dispatch('scraper_batch2.yml'); 
+            // Note: The lack of 'await' between dispatches makes them run concurrently.
 
 
       # -----------------------------------------------------------------
       # --- STEP 2: Wait 12 Minutes ---
-      - name: ⏳ Wait for 12 minutes (Before Batch 3)
+      - name: ⏳ Wait for 12 minutes (Before Group 2)
         uses: actions/github-script@v6
         with:
           script: |
-            // Delay for 10 minutes (12 * 60 * 1000 milliseconds)
+            // Delay for 12 minutes (12 * 60 * 1000 milliseconds)
             const delay = 12 * 60 * 1000; 
             console.log(`Waiting for ${delay / 1000 / 60} minutes...`);
             await new Promise(resolve => setTimeout(resolve, delay));
-            console.log('Wait complete, proceeding to Batch 3.');
+            console.log('Wait complete, proceeding to Batch 3 and 4.');
 
 
       # -----------------------------------------------------------------
-      # --- STEP 3: Trigger Batch 3 ---
-      - name: 🚀 Trigger Batch 3
+      # --- STEP 3: Simultaneously Trigger Batch 3 and Batch 4 ---
+      - name: 🚀 Trigger Batch 3 and Batch 4 (Concurrent Group 2)
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            // Trigger scraper_batch3.yml
-            const workflowFile = 'scraper_batch3.yml';
-            console.log(`Dispatching workflow: ${workflowFile}`);
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: workflowFile,
-              ref: context.ref,
-              inputs: {} 
-            });
-            console.log(`Successfully dispatched ${workflowFile}`);
+            const dispatch = async (workflowFile) => {
+              console.log(`Dispatching workflow: ${workflowFile}`);
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: workflowFile,
+                ref: context.ref,
+                inputs: {}
+              });
+              console.log(`Successfully dispatched ${workflowFile}`);
+            };
+
+            // Trigger scraper_batch3.yml simultaneously
+            dispatch('scraper_batch3.yml'); 
+            
+            // Trigger scraper_batch4.yml simultaneously
+            dispatch('scraper_batch4.yml'); 
 
 
       # -----------------------------------------------------------------
-      # --- STEP 4: Wait 3 Minutes ---
-      - name: ⏳ Wait for 3 minutes (Before Batch 4)
-        uses: actions/github-script@v6
-        with:
-          script: |
-            // Delay for 3 minutes (3 * 60 * 1000 milliseconds)
-            const delay = 3 * 60 * 1000;
-            console.log(`Waiting for ${delay / 1000 / 60} minutes...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            console.log('Wait complete, proceeding to Batch 4.');
-
-
-      # -----------------------------------------------------------------
-      # --- STEP 5: Trigger Batch 4 ---
-      - name: 🚀 Trigger Batch 4
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            // Trigger scraper_batch4.yml
-            const workflowFile = 'scraper_batch4.yml';
-            console.log(`Dispatching workflow: ${workflowFile}`);
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: workflowFile,
-              ref: context.ref,
-              inputs: {} 
-            });
-            console.log(`Successfully dispatched ${workflowFile}`);
+      # --- STEP 4: Optional cleanup step or simple completion log ---
+      - name: ✅ Orchestration Complete
+        run: echo "All scraper batches have been dispatched."
