@@ -2,8 +2,6 @@ name: TradingView Scraper Group 1 (Shards 0–4)
 
 on:
   workflow_dispatch:
-  repository_dispatch:
-    types: [trigger-scraper-batch1]
 
 jobs:
   scrape:
