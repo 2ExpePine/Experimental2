@@ -1,67 +1,111 @@
-name: 🗂️ Sequential Scraper Deployment
+name: 🔄 Timed Scraper Batch Orchestrator
 
 on:
-  # Allows manual triggering from the GitHub UI for controlled deployments.
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Select Deployment Environment'
-        required: true
-        default: 'testing'
-        type: choice
-        options:
-          - testing
-          - production
+      reason:
+        description: 'Reason for dispatching the orchestrator'
+        required: false
+        default: 'Timed sequential run'
+
+# Permissions are essential for dispatching other workflows
+permissions:
+  actions: write 
+  contents: read
 
 jobs:
-  run_sequential_scrapers:
+  trigger_workflows:
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment }}
-
     steps:
-      - name: ⬇️ Checkout Repository Code
+      - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
 
-      # -------------------------------------------------------------------
-      # ⚠️ IMPORTANT SETUP STEP (Modify for your actual tool/environment)
-      # -------------------------------------------------------------------
-      # If these are K8s jobs, you would set up kubectl here (see previous example).
-      # If they are for a custom tool, you might need to:
-      # 1. Download/install that tool.
-      # 2. Configure authentication (e.g., via GitHub Secrets).
-      
-      - name: Placeholder Step - Setup Tool
-        # Replace this with actual setup commands if needed
-        run: echo "Assuming necessary tools are available or will be installed in the next step."
+      # --- STEP 1: Simultaneously Trigger Batch 1 and Batch 2 ---
+      - name: 🚀 Trigger Batch 1 and Batch 2
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const dispatch = async (workflowFile) => {
+              console.log(`Dispatching workflow: ${workflowFile}`);
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: workflowFile,
+                ref: context.ref,
+                inputs: {} // Add inputs if your child workflows require them
+              });
+              console.log(`Successfully dispatched ${workflowFile}`);
+            };
+
+            // Trigger scraper_batch1.yml
+            dispatch('scraper_batch1.yml'); 
+            
+            // Trigger scraper_batch2.yml (Note: No 'await' for the first dispatch ensures they start nearly simultaneously)
+            dispatch('scraper_batch2.yml'); 
 
 
-      - name: 🏃 Run Sequential Scraper Batches with 5-second Gaps
-        run: |
-          # Define the delay time in seconds
-          DELAY=5
-          
-          # --- Start of Sequential Execution ---
-          
-          echo "Applying scraper_batch1.yml..."
-          # *** Replace 'kubectl apply -f' with your actual command ***
-          kubectl apply -f scraper_batch1.yml
-          
-          echo "Pausing for $DELAY seconds..."
-          sleep $DELAY
-          
-          echo "Applying scraper_batch2.yml..."
-          kubectl apply -f scraper_batch2.yml
-          
-          echo "Pausing for $DELAY seconds..."
-          sleep $DELAY
-          
-          echo "Applying scraper_batch3.yml..."
-          kubectl apply -f scraper_batch3.yml
-          
-          echo "Pausing for $DELAY seconds..."
-          sleep $DELAY
-          
-          echo "Applying scraper_batch4.yml..."
-          kubectl apply -f scraper_batch4.yml
-          
-          echo "✅ All four scraper batches have been applied sequentially."
+      # -----------------------------------------------------------------
+      # --- STEP 2: Wait 10 Minutes ---
+      - name: ⏳ Wait for 10 minutes (Before Batch 3)
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Delay for 10 minutes (10 * 60 * 1000 milliseconds)
+            const delay = 10 * 60 * 1000; 
+            console.log(`Waiting for ${delay / 1000 / 60} minutes...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            console.log('Wait complete, proceeding to Batch 3.');
+
+
+      # -----------------------------------------------------------------
+      # --- STEP 3: Trigger Batch 3 ---
+      - name: 🚀 Trigger Batch 3
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Trigger scraper_batch3.yml
+            const workflowFile = 'scraper_batch3.yml';
+            console.log(`Dispatching workflow: ${workflowFile}`);
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: workflowFile,
+              ref: context.ref,
+              inputs: {} 
+            });
+            console.log(`Successfully dispatched ${workflowFile}`);
+
+
+      # -----------------------------------------------------------------
+      # --- STEP 4: Wait 5 Minutes ---
+      - name: ⏳ Wait for 5 minutes (Before Batch 4)
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Delay for 5 minutes (5 * 60 * 1000 milliseconds)
+            const delay = 5 * 60 * 1000;
+            console.log(`Waiting for ${delay / 1000 / 60} minutes...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            console.log('Wait complete, proceeding to Batch 4.');
+
+
+      # -----------------------------------------------------------------
+      # --- STEP 5: Trigger Batch 4 ---
+      - name: 🚀 Trigger Batch 4
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Trigger scraper_batch4.yml
+            const workflowFile = 'scraper_batch4.yml';
+            console.log(`Dispatching workflow: ${workflowFile}`);
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: workflowFile,
+              ref: context.ref,
+              inputs: {} 
+            });
+            console.log(`Successfully dispatched ${workflowFile}`);
