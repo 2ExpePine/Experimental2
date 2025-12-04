@@ -11,12 +11,14 @@ from datetime import date
 import os
 import time
 import json
+import random # <--- NEW: Added for randomized delay (jitter)
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ---------------- SHARDING ---------------- #
 SHARD_INDEX = int(os.getenv("SHARD_INDEX", "0"))
 SHARD_STEP = int(os.getenv("SHARD_STEP", "1"))
 checkpoint_file = os.getenv("CHECKPOINT_FILE", f"checkpoint_{SHARD_INDEX}.txt")
+# Attempt to read last_i, defaulting to 1 if the file doesn't exist
 last_i = int(open(checkpoint_file).read()) if os.path.exists(checkpoint_file) else 1
 
 # ---------------- CHROME SETUP ---------------- #
@@ -26,9 +28,13 @@ chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--remote-debugging-port=9222")
+# Recommended: Add a common user-agent to look less like a headless bot
+chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+
 
 # ---------------- GOOGLE SHEETS AUTH ---------------- #
 try:
+    # Use os.path.join for better path handling, though "credentials.json" is simple
     gc = gspread.service_account("credentials.json")
 except Exception as e:
     print(f"Error loading credentials.json: {e}")
@@ -43,27 +49,40 @@ name_list = sheet_main.col_values(1)
 current_date = date.today().strftime("%m/%d/%Y")
 
 # ---------------- SCRAPER ---------------- #
+# --- UPDATED: Increased timeout and changed locator for reliability ---
 def scrape_tradingview(driver, company_url):
     try:
         driver.get(company_url)
-        WebDriverWait(driver, 45).until(
-            EC.visibility_of_element_located((By.XPATH,
-                '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'))
+        # 1. Increased timeout from 45s to 60s
+        # 2. Changed locator to the more stable CSS selector for the main summary container
+        WebDriverWait(driver, 60).until(
+            EC.visibility_of_element_located((By.CSS_SELECTOR,
+                '.container-qFvYvS1F')) # Reliable class for the main summary container
         )
         soup = BeautifulSoup(driver.page_source, "html.parser")
         values = [
             el.get_text().replace('−', '-').replace('∅', 'None')
+            # The class below is for the data values that we want to extract
             for el in soup.find_all("div", class_="valueValue-l31H9iuA apply-common-tooltip")
         ]
         return values
     except NoSuchElementException:
+        # It's useful to know when the page loaded but the target elements weren't found
+        print(f"⚠️ Page loaded, but data elements not found on {company_url}. Returning empty.")
         return []
     except Exception as e:
-        print(f"Error scraping {company_url}: {e}")
+        # General catch for timeouts, connection errors, etc.
+        print(f"🚨 Timeout/Error scraping {company_url} after wait: {e}")
         return []
 
 # ---------------- MAIN LOOP ---------------- #
-driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+# Initialize the driver once
+try:
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+except Exception as e:
+    print(f"Error initializing WebDriver: {e}")
+    exit(1)
+
 
 # Load cookies (once per shard)
 if os.path.exists("cookies.json"):
@@ -72,26 +91,36 @@ if os.path.exists("cookies.json"):
         cookies = json.load(f)
     for cookie in cookies:
         try:
+            # Safely prepare cookie dictionary for Selenium
             cookie_to_add = {k: cookie[k] for k in ('name', 'value', 'domain', 'path') if k in cookie}
             cookie_to_add['secure'] = cookie.get('secure', False)
             cookie_to_add['httpOnly'] = cookie.get('httpOnly', False)
+            # Add expiry if present and valid (Selenium needs int or float)
+            if 'expiry' in cookie and cookie['expiry'] not in [None, '']:
+                 cookie_to_add['expiry'] = int(cookie['expiry'])
+            
             driver.add_cookie(cookie_to_add)
         except Exception:
+            # Continue if a single cookie fails to load
             pass
     driver.refresh()
     time.sleep(2)
 else:
-    print("⚠️ cookies.json not found, scraping without login")
+    print("⚠️ cookies.json not found, scraping without login. Login may be required for full data access.")
 
 buffer = []
 BATCH_SIZE = 50
 
+# Start loop from the last successful checkpoint
 for i, company_url in enumerate(company_list[last_i:], last_i):
+    # Sharding logic: skip if not this shard's turn
     if i % SHARD_STEP != SHARD_INDEX:
         continue
-    if i > 2500:
-        print("Reached scraping limit.")
-        break
+    
+    # Safety limit to prevent runaway scripts and respect the list size
+    if i >= 2235: # Use the known total count or 2500 as a hard stop
+         print(f"Reached known list limit of 2235. Stopping.")
+         break
 
     name = name_list[i] if i < len(name_list) else f"Row {i}"
     print(f"Scraping {i}: {name}")
@@ -109,15 +138,19 @@ for i, company_url in enumerate(company_list[last_i:], last_i):
     # Write every 50 rows
     if len(buffer) >= BATCH_SIZE:
         try:
-            sheet_data.append_rows(buffer, table_range='A1')
-            print(f"✅ Wrote batch of {len(buffer)} rows.")
+            # Append rows starts appending from the first empty row
+            sheet_data.append_rows(buffer, table_range='A1') 
+            print(f"✅ Wrote batch of {len(buffer)} rows. Current row index: {i}")
             buffer.clear()
         except Exception as e:
-            print(f"⚠️ Batch write failed: {e}")
+            print(f"⚠️ Batch write failed: {e}. Data remaining in buffer.")
 
-    time.sleep(1)
+    # --- UPDATED: Increased sleep time and added jitter ---
+    # Sleeps for a random duration between 1.5 and 3.0 seconds
+    sleep_time = 1.5 + random.random() * 1.5 
+    time.sleep(sleep_time)
 
-# Final flush
+# Final flush of any remaining items in the buffer
 if buffer:
     try:
         sheet_data.append_rows(buffer, table_range='A1')
