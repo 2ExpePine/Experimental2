@@ -4,149 +4,129 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.common.exceptions import NoSuchElementException
 from bs4 import BeautifulSoup
 import gspread
 from datetime import date
 import os
 import time
 import json
-import random
+import pandas as pd
+import requests
+from io import BytesIO
 from webdriver_manager.chrome import ChromeDriverManager
-import re
 
-print("🚀 STARTING - FIXED VERSION")
-
-# ---------------- FIXED SHARDING ---------------- #
+# ---------------- SHARDING (env-driven) ---------------- #
 SHARD_INDEX = int(os.getenv("SHARD_INDEX", "0"))
 SHARD_STEP = int(os.getenv("SHARD_STEP", "1"))
-checkpoint_file = os.getenv("CHECKPOINT_FILE", f"checkpoint_{SHARD_INDEX}.txt")
+START_INDEX = int(os.getenv("START_INDEX", "1"))
+END_INDEX = int(os.getenv("END_INDEX", "2500"))
+checkpoint_file = os.getenv("CHECKPOINT_FILE", "checkpoint_new_1.txt")
+last_i = int(open(checkpoint_file).read()) if os.path.exists(checkpoint_file) else START_INDEX
 
-# FIXED CHECKPOINT READ
-try:
-    if os.path.exists(checkpoint_file):
-        with open(checkpoint_file, 'r') as f:
-            last_i = int(f.read().strip())
-        print(f"✅ Checkpoint loaded: row {last_i}")
-    else:
-        last_i = 0
-        print("📋 Starting from row 0 (no checkpoint)")
-except:
-    last_i = 0
-    print("🔄 Checkpoint corrupt, starting from 0")
-
-# ---------------- CHROME & SHEETS ---------------- #
+# ---------------- SETUP ---------------- #
 chrome_options = Options()
 chrome_options.add_argument("--headless=new")
+chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
-chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+chrome_options.add_argument("--remote-debugging-port=9222")
 
-gc = gspread.service_account("credentials.json")
-sheet_main = gc.open('Stock List').worksheet('Sheet1')
+# ---------------- GOOGLE SHEETS AUTH ---------------- #
+try:
+    gc = gspread.service_account("credentials.json")
+except Exception as e:
+    print(f"Error loading credentials.json: {e}")
+    exit(1)
+
 sheet_data = gc.open('Tradingview Data Reel Experimental May').worksheet('Sheet5')
 
-company_list = sheet_main.col_values(5)
-name_list = sheet_main.col_values(1)
+# ---------------- READ STOCK LIST FROM GITHUB EXCEL ---------------- #
+print("📥 Fetching stock list from GitHub Excel...")
+
+try:
+    EXCEL_URL = "https://raw.githubusercontent.com/Lavit-sharma/stock_raja/main/Stock%20List.xlsx"
+    response = requests.get(EXCEL_URL)
+    response.raise_for_status()
+
+    df = pd.read_excel(BytesIO(response.content), engine="openpyxl")
+    name_list = df.iloc[:, 0].fillna("").tolist()   # Column A - Name
+    company_list = df.iloc[:, 4].fillna("").tolist()  # Column E - URL
+
+    print(f"✅ Loaded {len(company_list)} companies from GitHub Excel.")
+except Exception as e:
+    print(f"❌ Error reading Excel from GitHub: {e}")
+    exit(1)
+
 current_date = date.today().strftime("%m/%d/%Y")
 
-print(f"📊 Loaded {len(company_list)} URLs from Column E, starting at row {last_i}")
-
-# ---------------- FIXED SCRAPER ---------------- #
-def scrape_tradingview(driver, company_url, name, i):
-    print(f"[{i}] → {name[:30]}...")
-    
+# ---------------- SCRAPER FUNCTION ---------------- #
+def scrape_tradingview(company_url):
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    driver.set_window_size(1920, 1080)
     try:
+        # LOGIN USING SAVED COOKIES
+        if os.path.exists("cookies.json"):
+            driver.get("https://www.tradingview.com/")
+            with open("cookies.json", "r", encoding="utf-8") as f:
+                cookies = json.load(f)
+            for cookie in cookies:
+                try:
+                    cookie_to_add = {k: cookie[k] for k in ('name', 'value', 'domain', 'path') if k in cookie}
+                    cookie_to_add['secure'] = cookie.get('secure', False)
+                    cookie_to_add['httpOnly'] = cookie.get('httpOnly', False)
+                    driver.add_cookie(cookie_to_add)
+                except Exception:
+                    pass
+            driver.refresh()
+            time.sleep(2)
+        else:
+            print("⚠️ cookies.json not found. Proceeding without login may limit data.")
+
         driver.get(company_url)
-        time.sleep(8)  # Fixed wait
-        
-        # FIXED: Multiple selectors + direct Selenium
+        WebDriverWait(driver, 45).until(
+            EC.visibility_of_element_located((By.XPATH,
+                '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'))
+        )
+
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        
-        # Strategy 1: Any numeric data-value attributes
-        values = []
-        for el in soup.find_all(attrs={"data-value": True})[:30]:
-            val = el.get("data-value", "").strip()
-            if re.match(r'[-+]?\d+(?:\.\d+)?', val):
-                values.append(val.replace('−', '-'))
-        
-        # Strategy 2: Common TradingView number patterns
-        if not values:
-            for el in soup.find_all(text=re.compile(r'[-+]?\d+(?:\.\d+)?'))[:30]:
-                val = str(el).strip()
-                if len(val) < 20 and val not in ['0', '1', 'None']:
-                    values.append(val.replace('−', '-'))
-        
-        # Strategy 3: Selenium direct grab
-        if not values:
-            elements = driver.find_elements(By.CSS_SELECTOR, "[class*='value'], [class*='price'], [class*='data']")
-            values = [el.text.strip() for el in elements[:30] if re.search(r'\d', el.text) and len(el.text.strip()) < 15]
-        
-        print(f"   📊 {len(values)} values: {values[:3] if values else 'NONE'}")
+        values = [
+            el.get_text().replace('−', '-').replace('∅', '').strip()
+            for el in soup.find_all("div", class_="valueValue-l31H9iuA apply-common-tooltip")
+        ]
         return values
-        
-    except Exception as e:
-        print(f"   ❌ ERROR: {str(e)[:50]}")
+
+    except NoSuchElementException:
+        print(f"Data element not found for URL: {company_url}")
         return []
+    except Exception as e:
+        print(f"An error occurred during scraping for {company_url}: {e}")
+        return []
+    finally:
+        driver.quit()
 
 # ---------------- MAIN LOOP ---------------- #
-driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-print("✅ Chrome ready")
-
-buffer = []
-BATCH_SIZE = 10  # Smaller for testing
-total_written = 0
-processed = 0
-
 for i, company_url in enumerate(company_list[last_i:], last_i):
+    if i < START_INDEX or i > END_INDEX:
+        continue
     if i % SHARD_STEP != SHARD_INDEX:
         continue
-    if i > 20:  # Test first 20 only
-        print("🛑 Test limit reached")
-        break
-    
-    processed += 1
+
     name = name_list[i] if i < len(name_list) else f"Row {i}"
-    
-    values = scrape_tradingview(driver, company_url, name, i)
-    
+    print(f"Scraping {i}: {name} | {company_url}")
+
+    values = scrape_tradingview(company_url)
     if values:
-        buffer.append([name, current_date] + values)
-        print(f"   ✅ BUFFER: {len(buffer)}/{BATCH_SIZE}")
-        
-        # Checkpoint EVERY row
+        row = [name, current_date] + values
         try:
-            with open(checkpoint_file, "w") as f:
-                f.write(str(i))
-        except:
-            pass
-        
-        # Write small batches
-        if len(buffer) >= BATCH_SIZE:
-            try:
-                sheet_data.append_rows(buffer)
-                total_written += len(buffer)
-                print(f"✅ WRITTEN {len(buffer)} rows | TOTAL: {total_written}")
-                buffer = []
-            except Exception as e:
-                print(f"❌ WRITE FAILED: {e}")
+            sheet_data.append_row(row, table_range='A1')
+            print(f"✅ Successfully scraped and saved data for {name}.")
+        except Exception as e:
+            print(f"⚠️ Failed to append for {name}: {e}")
     else:
-        print(f"   ❌ NO DATA SKIPPED")
-    
-    time.sleep(2)
+        print(f"⚠️ Skipping {name}: No data scraped.")
 
-# Final write
-if buffer:
-    try:
-        sheet_data.append_rows(buffer)
-        total_written += len(buffer)
-        print(f"✅ FINAL {len(buffer)} rows")
-    except Exception as e:
-        print(f"❌ FINAL WRITE FAILED: {e}")
+    with open(checkpoint_file, "w") as f:
+        f.write(str(i))
 
-print(f"\n🎉 SUMMARY:")
-print(f"   Processed: {processed}")
-print(f"   Rows written: {total_written}")
-print(f"   Checkpoint: {i}")
-
-driver.quit()
+    time.sleep(1)
