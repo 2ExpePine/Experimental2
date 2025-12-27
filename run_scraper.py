@@ -29,14 +29,21 @@ chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--remote-debugging-port=9222")
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 
-# ---------------- GOOGLE SHEETS AUTH ---------------- #
+# ---------------- GOOGLE SHEETS AUTH (Logic Fixed) ---------------- #
 try:
-    gc = gspread.service_account("credentials.json")
-    # Updated to your specific sheet name from the prompt
+    # Logic fix: Check if we are using an environment variable for credentials (common in CI/CD)
+    creds_json = os.getenv("GSPREAD_CREDENTIALS")
+    if creds_json:
+        creds_dict = json.loads(creds_json)
+        gc = gspread.service_account_from_dict(creds_dict)
+    else:
+        # Fallback to local file if not in CI/CD
+        gc = gspread.service_account(filename="credentials.json")
+    
     sheet_main = gc.open('Stock List').worksheet('Sheet1')
     sheet_data = gc.open('Tradingview Data Reel Experimental May').worksheet('Sheet5')
 except Exception as e:
-    print(f"Error loading credentials.json: {e}")
+    print(f"🚨 Auth Error: {e}")
     exit(1)
 
 # Batch read once
@@ -61,43 +68,26 @@ class text_content_loaded:
                 return elements
         return False
 
-# ---------------- SCRAPER ---------------- #
+# ---------------- SCRAPER (Selector Updated) ---------------- #
 def scrape_tradingview(driver, company_url):
-    # STABILITY UPDATE: Look for any div where class starts with 'valueValue-'
-    # This bypasses the issue where TradingView changes the 'l31H9iuA' suffix.
+    # Selector updated for stability against TradingView CSS changes
     DATA_SELECTOR = "div[class^='valueValue-']"
     
     try:
         driver.get(company_url)
-        
-        # Wait up to 60s for the dynamic content to actually have text
-        WebDriverWait(driver, 60).until(
-            text_content_loaded(DATA_SELECTOR, min_count=10)
-        )
-        
-        # Short pause for React hydration
+        WebDriverWait(driver, 60).until(text_content_loaded(DATA_SELECTOR, min_count=10))
         time.sleep(1)
         
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        
-        # Use a lambda to find all divs containing the value class substring
         val_elements = soup.find_all("div", class_=lambda x: x and 'valueValue-' in x)
         
         values = [
             el.get_text(strip=True).replace('−', '-').replace('∅', 'None')
             for el in val_elements if el.get_text(strip=True)
         ]
-        
-        if not values:
-            print(f"⚠️ Found elements but no text for {company_url}.")
-            
         return values
-        
-    except (NoSuchElementException, TimeoutException):
-        print(f"⚠️ Scraping failed (Timeout) for {company_url}.")
-        return []
     except Exception as e:
-        print(f"🚨 Error scraping {company_url}: {e}")
+        print(f"⚠️ Failed {company_url}: {e}")
         return []
 
 # ---------------- MAIN LOOP (Logic Unchanged) ---------------- #
@@ -107,7 +97,6 @@ except Exception as e:
     print(f"Error initializing WebDriver: {e}")
     exit(1)
 
-# Cookie Injection
 if os.path.exists("cookies.json"):
     driver.get("https://www.tradingview.com/")
     with open("cookies.json", "r", encoding="utf-8") as f:
@@ -126,9 +115,7 @@ BATCH_SIZE = 50
 for i, company_url in enumerate(company_list[last_i:], last_i):
     if i % SHARD_STEP != SHARD_INDEX:
         continue
-    
-    if i > 2500: 
-        break
+    if i > 2500: break
 
     name = name_list[i] if i < len(name_list) else f"Row {i}"
     print(f"Scraping {i}: {name}...", end=" ", flush=True)
@@ -136,30 +123,27 @@ for i, company_url in enumerate(company_list[last_i:], last_i):
     values = scrape_tradingview(driver, company_url)
     if values:
         buffer.append([name, current_date] + values)
-        print(f"Done ({len(values)} values)")
+        print(f"Done ({len(values)})")
     else:
-        print("Failed (No Data)")
+        print("Skipped")
 
-    # Write checkpoint
     with open(checkpoint_file, "w") as f:
         f.write(str(i))
 
-    # Batch write logic
     if len(buffer) >= BATCH_SIZE:
         try:
             sheet_data.append_rows(buffer, table_range='A1') 
-            print(f"✅ Wrote batch of {len(buffer)} rows. Current row index: {i}")
+            print(f"✅ Batch write success at index {i}")
             buffer.clear()
         except Exception as e:
-            print(f"⚠️ Batch write failed: {e}")
+            print(f"⚠️ Write failed: {e}")
 
     time.sleep(1.5 + random.random() * 1.5)
 
-# Final flush
 if buffer:
     try:
         sheet_data.append_rows(buffer, table_range='A1')
-        print(f"✅ Final batch written.")
+        print(f"✅ Final flush complete.")
     except Exception as e:
         print(f"⚠️ Final write failed: {e}")
 
