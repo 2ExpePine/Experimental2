@@ -3,20 +3,11 @@ name: Tradingview Scraper
 on:
   push:
     branches: [ main ]
-  schedule:
-    - cron: '0 */6 * * *' # Optional: Runs every 6 hours
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch: 
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    env:
-      SHARD_INDEX: 0
-      SHARD_STEP: 20
-      START_INDEX: 1
-      END_INDEX: 2500
-      CHECKPOINT_FILE: checkpoint_group1_0.txt
 
     steps:
       - name: Checkout code
@@ -32,18 +23,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas openpyxl selenium webdriver-manager gspread beautifulsoup4 requests
 
+      - name: Create credentials.json
+        run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
+
       - name: Run Scraper
-        run: python run_scraper.py
         env:
-          # If you use secrets for your credentials.json, map them here:
-          # GSPREAD_CREDENTIALS: ${{ secrets.GSPREAD_CREDENTIALS }}
-          SHARD_INDEX: ${{ env.SHARD_INDEX }}
-          SHARD_STEP: ${{ env.SHARD_STEP }}
+          SHARD_INDEX: 0
+          SHARD_STEP: 20
+          START_INDEX: 1
+          END_INDEX: 2500
+          CHECKPOINT_FILE: checkpoint_group1_0.txt
+        run: python run_scraper.py
 
       - name: Commit and Push Checkpoint
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add checkpoint_group1_0.txt
-          git commit -m "Update checkpoint" || exit 0
+          git add checkpoint_group1_0.txt || echo "No checkpoint to update"
+          git commit -m "Update scraper checkpoint" || exit 0
           git push
