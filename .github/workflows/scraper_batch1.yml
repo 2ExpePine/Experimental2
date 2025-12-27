@@ -9,9 +9,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0,1,2,3,4]
-    env:
-      SHARD_STEP: 20   # total shards across all 4 YAMLs
+        shard: [0, 1, 2, 3, 4]
+    
     steps:
       - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
@@ -26,10 +25,13 @@ jobs:
           pip install selenium beautifulsoup4 gspread webdriver-manager
 
       - name: 🔑 Set up Google Credentials
-        run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
+        # Using a pipe to handle potential special characters in the JSON string
+        run: |
+          echo "${{ secrets.GSPREAD_CREDENTIALS }}" > credentials.json
 
       - name: 🍪 Set up TradingView Cookies
-        run: echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
+        run: |
+          echo "${{ secrets.TRADINGVIEW_COOKIES }}" > cookies.json
 
       - name: ⚙️ Create Checkpoint File
         run: |
@@ -38,6 +40,10 @@ jobs:
 
       - name: 🚀 Run Scraper
         env:
+          # Keep your main logic: Index is the matrix value, Step is 20
           SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_STEP: 20
           CHECKPOINT_FILE: checkpoint_group1_${{ matrix.shard }}.txt
+          # Adding this as a backup so the script can read it directly from memory
+          GSPREAD_CREDENTIALS: ${{ secrets.GSPREAD_CREDENTIALS }}
         run: python run_scraper.py
