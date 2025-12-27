@@ -1,43 +1,49 @@
-name: TradingView Scraper Group 1 (Shards 0–4)
+name: Tradingview Scraper
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '0 */6 * * *' # Optional: Runs every 6 hours
+  workflow_dispatch: # Allows manual triggering
 
 jobs:
-  scrape:
+  build:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0,1,2,3,4]
-    env:
-      SHARD_STEP: 20   # total shards across all 4 YAMLs
-    steps:
-      - name: ⬇️ Checkout Repository
-        uses: actions/checkout@v4
 
-      - name: 🐍 Set up Python
-        uses: actions/setup-python@v5
+    env:
+      SHARD_INDEX: 0
+      SHARD_STEP: 20
+      START_INDEX: 1
+      END_INDEX: 2500
+      CHECKPOINT_FILE: checkpoint_group1_0.txt
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: 📦 Install dependencies
+      - name: Install dependencies
         run: |
-          pip install selenium beautifulsoup4 gspread webdriver-manager
+          python -m pip install --upgrade pip
+          pip install pandas openpyxl selenium webdriver-manager gspread beautifulsoup4 requests
 
-      - name: 🔑 Set up Google Credentials
-        run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
-
-      - name: 🍪 Set up TradingView Cookies
-        run: echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
-
-      - name: ⚙️ Create Checkpoint File
-        run: |
-          FILE="checkpoint_group1_${{ matrix.shard }}.txt"
-          if [ ! -f "$FILE" ]; then echo "1" > "$FILE"; fi
-
-      - name: 🚀 Run Scraper
-        env:
-          SHARD_INDEX: ${{ matrix.shard }}
-          CHECKPOINT_FILE: checkpoint_group1_${{ matrix.shard }}.txt
+      - name: Run Scraper
         run: python run_scraper.py
+        env:
+          # If you use secrets for your credentials.json, map them here:
+          # GSPREAD_CREDENTIALS: ${{ secrets.GSPREAD_CREDENTIALS }}
+          SHARD_INDEX: ${{ env.SHARD_INDEX }}
+          SHARD_STEP: ${{ env.SHARD_STEP }}
+
+      - name: Commit and Push Checkpoint
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add checkpoint_group1_0.txt
+          git commit -m "Update checkpoint" || exit 0
+          git push
