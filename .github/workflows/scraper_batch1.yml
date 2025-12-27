@@ -1,7 +1,7 @@
 name: TradingView Scraper Group 1 (Shards 0–4)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual run
 
 jobs:
   scrape:
@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4]
+        shard: [0, 1, 2, 3, 4] # Runs 5 shards in parallel
     
     steps:
       - name: ⬇️ Checkout Repository
@@ -25,25 +25,38 @@ jobs:
           pip install selenium beautifulsoup4 gspread webdriver-manager
 
       - name: 🔑 Set up Google Credentials
-        # Using a pipe to handle potential special characters in the JSON string
+        shell: bash
         run: |
-          echo "${{ secrets.GSPREAD_CREDENTIALS }}" > credentials.json
+          cat <<EOF > credentials.json
+          ${{ secrets.GSPREAD_CREDENTIALS }}
+          EOF
 
       - name: 🍪 Set up TradingView Cookies
+        shell: bash
         run: |
-          echo "${{ secrets.TRADINGVIEW_COOKIES }}" > cookies.json
+          cat <<EOF > cookies.json
+          ${{ secrets.TRADINGVIEW_COOKIES }}
+          EOF
 
       - name: ⚙️ Create Checkpoint File
         run: |
           FILE="checkpoint_group1_${{ matrix.shard }}.txt"
+          # Logic: If no checkpoint exists, start at row 1
           if [ ! -f "$FILE" ]; then echo "1" > "$FILE"; fi
 
       - name: 🚀 Run Scraper
         env:
-          # Keep your main logic: Index is the matrix value, Step is 20
+          # Mapping matrix to your script's sharding logic
           SHARD_INDEX: ${{ matrix.shard }}
           SHARD_STEP: 20
           CHECKPOINT_FILE: checkpoint_group1_${{ matrix.shard }}.txt
-          # Adding this as a backup so the script can read it directly from memory
+          # Passing the secret directly as an env var as a secondary backup
           GSPREAD_CREDENTIALS: ${{ secrets.GSPREAD_CREDENTIALS }}
         run: python run_scraper.py
+
+      - name: 💾 Upload Checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint-group1-shard-${{ matrix.shard }}
+          path: checkpoint_group1_${{ matrix.shard }}.txt
