@@ -14,13 +14,20 @@ import json
 import random
 from webdriver_manager.chrome import ChromeDriverManager
 
-# ---------------- SHARDING ---------------- #
-SHARD_INDEX = int(os.getenv("SHARD_INDEX", "0"))
-SHARD_STEP = int(os.getenv("SHARD_STEP", "1"))
-checkpoint_file = os.getenv("CHECKPOINT_FILE", f"checkpoint_{SHARD_INDEX}.txt")
-last_i = int(open(checkpoint_file).read()) if os.path.exists(checkpoint_file) else 1
+print("🚀 Script starting...")
 
-print(f"🚀 STARTING SHARD {SHARD_INDEX}/{SHARD_STEP} from row {last_i}")
+# ---------------- SHARDING ---------------- #
+try:
+    SHARD_INDEX = int(os.getenv("SHARD_INDEX", "0"))
+    SHARD_STEP = int(os.getenv("SHARD_STEP", "1"))
+    checkpoint_file = os.getenv("CHECKPOINT_FILE", f"checkpoint_{SHARD_INDEX}.txt")
+    last_i = int(open(checkpoint_file).read().strip()) if os.path.exists(checkpoint_file) else 1
+    print(f"✅ Shard {SHARD_INDEX}/{SHARD_STEP} starting from row {last_i}")
+except Exception as e:
+    print(f"❌ Shard setup failed: {e}")
+    last_i = 1
+    SHARD_INDEX = 0
+    SHARD_STEP = 1
 
 # ---------------- CHROME SETUP ---------------- #
 chrome_options = Options()
@@ -29,183 +36,172 @@ chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--remote-debugging-port=9222")
-chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+chrome_options.add_argument("--disable-web-security")
+chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+print("🔧 Chrome options set")
 
 # ---------------- GOOGLE SHEETS AUTH ---------------- #
-print("📊 Connecting to Google Sheets...")
+print("📊 Loading Google Sheets credentials...")
 try:
     gc = gspread.service_account("credentials.json")
     print("✅ Credentials loaded")
+except FileNotFoundError:
+    print("❌ credentials.json NOT FOUND - this will fail!")
+    exit(1)
 except Exception as e:
-    print(f"❌ Error loading credentials.json: {e}")
+    print(f"❌ Credentials error: {e}")
     exit(1)
 
 try:
     sheet_main = gc.open('Stock List').worksheet('Sheet1')
     sheet_data = gc.open('Tradingview Data Reel Experimental May').worksheet('Sheet5')
-    print("✅ Sheets connected: Stock List (Sheet1) → Tradingview Data Reel Experimental May (Sheet5)")
+    print("✅ Sheets connected")
 except Exception as e:
-    print(f"❌ Sheet access error: {e}")
+    print(f"❌ Sheet connection failed: {e}")
     exit(1)
 
 # Batch read once
-company_list = sheet_main.col_values(5)
-name_list = sheet_main.col_values(1)
-current_date = date.today().strftime("%m/%d/%Y")
-print(f"📋 Loaded {len(company_list)} companies, {len(name_list)} names")
+print("📋 Reading company data...")
+try:
+    company_list = sheet_main.col_values(5)
+    name_list = sheet_main.col_values(1)
+    current_date = date.today().strftime("%m/%d/%Y")
+    print(f"✅ Loaded {len(company_list)} companies, {len(name_list)} names")
+except Exception as e:
+    print(f"❌ Sheet read failed: {e}")
+    exit(1)
 
 # ---------------- CUSTOM EXPECTED CONDITION ---------------- #
 class text_content_loaded:
-    """An expectation for checking that text content has loaded."""
     def __init__(self, locator, min_count=1):
         self.locator = locator
         self.min_count = min_count
 
     def __call__(self, driver):
         elements = driver.find_elements(*self.locator)
-        non_empty_count = 0
-        if len(elements) > 0:
-            for el in elements:
-                if el.text.strip():
-                    non_empty_count += 1
-            if non_empty_count >= self.min_count:
-                return elements
-        return False
-        
+        non_empty_count = sum(1 for el in elements if el.text.strip())
+        return elements if non_empty_count >= self.min_count else False
+
 # ---------------- SCRAPER ---------------- #
-def scrape_tradingview(driver, company_url):
-    DATA_LOCATOR = (By.CLASS_NAME, "valueValue-l31H9iuA") 
+def scrape_tradingview(driver, company_url, name):
+    print(f"   → Scraping: {name[:30]}...")
+    DATA_LOCATOR = (By.CLASS_NAME, "valueValue-l31H9iuA")
     
     try:
-        print(f"   → Loading: {company_url}")
         driver.get(company_url)
+        print(f"   ⏳ Waiting 75s for data...")
         
-        print(f"   ⏳ Waiting for data (75s timeout)...")
         WebDriverWait(driver, 75).until(
-            text_content_loaded(DATA_LOCATOR, min_count=10) 
+            text_content_loaded(DATA_LOCATOR, min_count=5)  # Reduced to 5 for GitHub timeout
         )
-        print(f"   ✅ Page loaded with data")
+        print(f"   ✅ Data loaded")
         
+        # Try multiple selectors for TradingView data
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        values = [
-            el.get_text().replace('−', '-').replace('∅', 'None')
-            for el in soup.find_all("div", class_="valueValue-l31H9iuA apply-common-tooltip")
-        ]
+        values = []
         
-        print(f"   📊 Found {len(values)} values")
-        if len(values) > 0:
-            print(f"   👀 Sample: {values[:3]}...")
+        # Original selector
+        values = [el.get_text().replace('−', '-').replace('∅', 'None').strip()
+                 for el in soup.find_all("div", class_="valueValue-l31H9iuA apply-common-tooltip")]
+        
+        # Fallback selectors if empty
+        if not values:
+            values = [el.get_text().strip() for el in soup.find_all("div", class_="valueValue-l31H9iuA")]
+        if not values:
+            values = [el.text.strip() for el in driver.find_elements(*DATA_LOCATOR) if el.text.strip()]
             
-        return values
+        print(f"   📊 Found {len(values)} values")
+        return values[:50]  # Limit for sheet
         
-    except (NoSuchElementException, TimeoutException):
-        print(f"   ❌ TIMEOUT or NO ELEMENTS for {company_url}")
-        return []
     except Exception as e:
-        print(f"   🚨 ERROR scraping {company_url}: {e}")
+        print(f"   ❌ Scrape failed: {str(e)[:100]}")
         return []
 
-# ---------------- MAIN LOOP ---------------- #
+# ---------------- MAIN EXECUTION ---------------- #
+print("🚗 Initializing Chrome...")
 try:
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    print("✅ Chrome driver initialized")
+    print("✅ Chrome ready")
 except Exception as e:
-    print(f"❌ Error initializing WebDriver: {e}")
+    print(f"❌ Chrome failed: {e}")
     exit(1)
 
-# Load cookies
-cookies_loaded = False
+# Load cookies if exist
 if os.path.exists("cookies.json"):
-    print("🍪 Loading cookies...")
-    driver.get("https://www.tradingview.com/")
     try:
-        with open("cookies.json", "r", encoding="utf-8") as f:
+        driver.get("https://www.tradingview.com/")
+        with open("cookies.json", "r") as f:
             cookies = json.load(f)
-        for cookie in cookies:
+        for cookie in cookies[:20]:  # Limit cookies
             try:
-                cookie_to_add = {k: cookie[k] for k in ('name', 'value', 'domain', 'path') if k in cookie}
-                cookie_to_add['secure'] = cookie.get('secure', False)
-                cookie_to_add['httpOnly'] = cookie.get('httpOnly', False)
-                if 'expiry' in cookie and cookie['expiry'] not in [None, '']:
-                     cookie_to_add['expiry'] = int(cookie['expiry'])
-                driver.add_cookie(cookie_to_add)
-            except Exception:
+                driver.add_cookie(cookie)
+            except:
                 pass
         driver.refresh()
-        time.sleep(2)
         print("✅ Cookies loaded")
-        cookies_loaded = True
+        time.sleep(3)
     except Exception as e:
-        print(f"⚠️ Cookie loading failed: {e}")
-else:
-    print("⚠️ cookies.json not found - running without login")
+        print(f"⚠️ Cookies failed: {e}")
 
 buffer = []
-BATCH_SIZE = 50
-total_rows_written = 0
+BATCH_SIZE = 10  # Smaller for GitHub Actions
+total_written = 0
 successful_scrapes = 0
-total_processed = 0
 
-print(f"🔄 Starting main loop from {last_i}...")
+print(f"🔄 Processing from row {last_i}...")
 
-# Start loop from the last successful checkpoint
 for i, company_url in enumerate(company_list[last_i:], last_i):
     if i % SHARD_STEP != SHARD_INDEX:
         continue
-    
-    if i > 2500: 
-        print("🛑 Reached scraping limit of 2500. Stopping.")
+    if i > 2500:
+        print("🛑 Limit reached")
         break
 
-    total_processed += 1
     name = name_list[i] if i < len(name_list) else f"Row {i}"
-    print(f"\n[{total_processed}] Scraping {i}: {name}")
+    print(f"\n[{i}] {name[:40]}")
 
-    values = scrape_tradingview(driver, company_url)
+    values = scrape_tradingview(driver, company_url, name)
     
     if values:
         buffer.append([name, current_date] + values)
         successful_scrapes += 1
-        print(f"   ✅ Added to buffer ({len(buffer)}/{BATCH_SIZE})")
-    else:
-        print(f"   ❌ No data - skipped")
-
-    # Write checkpoint
-    with open(checkpoint_file, "w") as f:
-        f.write(str(i))
-    
-    print(f"   💾 Checkpoint: {i}")
-
-    # Write every 50 rows
-    if len(buffer) >= BATCH_SIZE:
+        print(f"   ✅ Added ({len(values)} values)")
+        
+        # Checkpoint every row for GitHub
         try:
-            sheet_data.append_rows(buffer)
-            total_rows_written += len(buffer)
-            print(f"✅ BATCH WRITTEN: {len(buffer)} rows | TOTAL: {total_rows_written} | Current: {i}")
-            buffer.clear()
-        except Exception as e:
-            print(f"❌ BATCH WRITE FAILED: {e}")
-            print(f"   Buffer size: {len(buffer)}")
+            with open(checkpoint_file, "w") as f:
+                f.write(str(i))
+        except:
+            pass
 
-    # Sleep with jitter
-    sleep_time = 1.5 + random.random() * 1.5 
-    print(f"   😴 Sleeping {sleep_time:.1f}s...")
-    time.sleep(sleep_time)
+        # Smaller batches for GitHub Actions
+        if len(buffer) >= BATCH_SIZE:
+            try:
+                sheet_data.append_rows(buffer)
+                total_written += len(buffer)
+                print(f"✅ BATCH: {len(buffer)} rows | TOTAL: {total_written}")
+                buffer = []
+            except Exception as e:
+                print(f"❌ Write failed: {e}")
 
-# Final flush
+    # Rate limit
+    time.sleep(2 + random.random() * 2)
+
+# Final write
 if buffer:
     try:
         sheet_data.append_rows(buffer)
-        total_rows_written += len(buffer)
-        print(f"✅ FINAL BATCH: {len(buffer)} rows | GRAND TOTAL: {total_rows_written}")
+        total_written += len(buffer)
+        print(f"✅ FINAL: {len(buffer)} | TOTAL: {total_written}")
     except Exception as e:
-        print(f"❌ FINAL WRITE FAILED: {e}")
+        print(f"❌ Final write failed: {e}")
 
-print(f"\n🎉 FINISHED!")
-print(f"📈 Total processed: {total_processed}")
-print(f"✅ Successful scrapes: {successful_scrapes}")
-print(f"💾 Rows written to sheet: {total_rows_written}")
-print(f"📊 Buffer leftovers: {len(buffer)}")
+print(f"\n🎉 SUMMARY:")
+print(f"   Successful scrapes: {successful_scrapes}")
+print(f"   Rows written: {total_written}")
+print(f"   Final checkpoint: {last_i if not company_list[last_i:] else i}")
 
 driver.quit()
-print("👋 Driver closed")
+print("✅ COMPLETE")
