@@ -29,17 +29,19 @@ chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--remote-debugging-port=9222")
 chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 
-# ---------------- GOOGLE SHEETS AUTH (Logic Fixed) ---------------- #
+# ---------------- GOOGLE SHEETS AUTH (Updated to resolve Auth Error) ---------------- #
 try:
-    # Logic fix: Check if we are using an environment variable for credentials (common in CI/CD)
-    creds_json = os.getenv("GSPREAD_CREDENTIALS")
-    if creds_json:
-        creds_dict = json.loads(creds_json)
+    # First, try to load from an Environment Variable (best for GitHub Actions/Runners)
+    creds_env = os.getenv("GOOGLE_SHEETS_CREDS_JSON")
+    
+    if creds_env:
+        # If the env var exists, parse it directly from the string
+        creds_dict = json.loads(creds_env)
         gc = gspread.service_account_from_dict(creds_dict)
     else:
-        # Fallback to local file if not in CI/CD
-        gc = gspread.service_account(filename="credentials.json")
-    
+        # Fallback to local file if running on a local machine
+        gc = gspread.service_account("credentials.json")
+        
     sheet_main = gc.open('Stock List').worksheet('Sheet1')
     sheet_data = gc.open('Tradingview Data Reel Experimental May').worksheet('Sheet5')
 except Exception as e:
@@ -68,9 +70,9 @@ class text_content_loaded:
                 return elements
         return False
 
-# ---------------- SCRAPER (Selector Updated) ---------------- #
+# ---------------- SCRAPER (Main Logic Preserved) ---------------- #
 def scrape_tradingview(driver, company_url):
-    # Selector updated for stability against TradingView CSS changes
+    # Selector updated for current TradingView structure
     DATA_SELECTOR = "div[class^='valueValue-']"
     
     try:
@@ -87,7 +89,7 @@ def scrape_tradingview(driver, company_url):
         ]
         return values
     except Exception as e:
-        print(f"⚠️ Failed {company_url}: {e}")
+        print(f"⚠️ Failed to scrape {company_url}: {e}")
         return []
 
 # ---------------- MAIN LOOP (Logic Unchanged) ---------------- #
@@ -97,6 +99,7 @@ except Exception as e:
     print(f"Error initializing WebDriver: {e}")
     exit(1)
 
+# Cookie Handling
 if os.path.exists("cookies.json"):
     driver.get("https://www.tradingview.com/")
     with open("cookies.json", "r", encoding="utf-8") as f:
@@ -115,6 +118,7 @@ BATCH_SIZE = 50
 for i, company_url in enumerate(company_list[last_i:], last_i):
     if i % SHARD_STEP != SHARD_INDEX:
         continue
+    
     if i > 2500: break
 
     name = name_list[i] if i < len(name_list) else f"Row {i}"
@@ -123,9 +127,9 @@ for i, company_url in enumerate(company_list[last_i:], last_i):
     values = scrape_tradingview(driver, company_url)
     if values:
         buffer.append([name, current_date] + values)
-        print(f"Done ({len(values)})")
+        print(f"Success ({len(values)} items)")
     else:
-        print("Skipped")
+        print("No Data Found")
 
     with open(checkpoint_file, "w") as f:
         f.write(str(i))
@@ -133,7 +137,7 @@ for i, company_url in enumerate(company_list[last_i:], last_i):
     if len(buffer) >= BATCH_SIZE:
         try:
             sheet_data.append_rows(buffer, table_range='A1') 
-            print(f"✅ Batch write success at index {i}")
+            print(f"✅ Batch write completed at index {i}")
             buffer.clear()
         except Exception as e:
             print(f"⚠️ Write failed: {e}")
@@ -143,9 +147,9 @@ for i, company_url in enumerate(company_list[last_i:], last_i):
 if buffer:
     try:
         sheet_data.append_rows(buffer, table_range='A1')
-        print(f"✅ Final flush complete.")
+        print(f"✅ Final buffer written.")
     except Exception as e:
         print(f"⚠️ Final write failed: {e}")
 
 driver.quit()
-print("All done ✅")
+print("Process finished ✅")
