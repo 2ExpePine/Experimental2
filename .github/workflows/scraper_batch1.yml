@@ -1,7 +1,7 @@
 name: TradingView Scraper Group 1 (Shards 0–4)
 
 on:
-  workflow_dispatch: # Allows manual run
+  workflow_dispatch:
 
 jobs:
   scrape:
@@ -9,8 +9,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4] # Runs 5 shards in parallel
-    
+        shard: [0,1,2,3,4]
+    env:
+      SHARD_STEP: 20   # total shards across all 4 YAMLs
     steps:
       - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
@@ -25,38 +26,18 @@ jobs:
           pip install selenium beautifulsoup4 gspread webdriver-manager
 
       - name: 🔑 Set up Google Credentials
-        shell: bash
-        run: |
-          cat <<EOF > credentials.json
-          ${{ secrets.GSPREAD_CREDENTIALS }}
-          EOF
+        run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
 
       - name: 🍪 Set up TradingView Cookies
-        shell: bash
-        run: |
-          cat <<EOF > cookies.json
-          ${{ secrets.TRADINGVIEW_COOKIES }}
-          EOF
+        run: echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
 
       - name: ⚙️ Create Checkpoint File
         run: |
           FILE="checkpoint_group1_${{ matrix.shard }}.txt"
-          # Logic: If no checkpoint exists, start at row 1
           if [ ! -f "$FILE" ]; then echo "1" > "$FILE"; fi
 
       - name: 🚀 Run Scraper
         env:
-          # Mapping matrix to your script's sharding logic
           SHARD_INDEX: ${{ matrix.shard }}
-          SHARD_STEP: 20
           CHECKPOINT_FILE: checkpoint_group1_${{ matrix.shard }}.txt
-          # Passing the secret directly as an env var as a secondary backup
-          GSPREAD_CREDENTIALS: ${{ secrets.GSPREAD_CREDENTIALS }}
         run: python run_scraper.py
-
-      - name: 💾 Upload Checkpoint
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: checkpoint-group1-shard-${{ matrix.shard }}
-          path: checkpoint_group1_${{ matrix.shard }}.txt
