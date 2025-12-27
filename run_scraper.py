@@ -37,7 +37,10 @@ except Exception as e:
     print(f"Error loading credentials.json: {e}")
     exit(1)
 
-sheet_main = gc.open('https://docs.google.com/spreadsheets/d/1V8DsH-R3vdUbXqDKZYWHk_8T0VRjqTEVyj7PhlIDtG4/edit?gid=0#gid=0').worksheet('Sheet1')
+sheet_main = gc.open_by_key(
+    "1V8DsH-R3vdUbXqDKZYWHk_8T0VRjqTEVyj7PhlIDtG4"
+).worksheet("Sheet1")
+
 sheet_data = gc.open('Tradingview Data Reel Experimental May').worksheet('Sheet5')
 
 # Batch read once
