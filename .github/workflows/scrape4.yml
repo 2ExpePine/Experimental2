@@ -1,8 +1,6 @@
 name: TradingView Scraper (Part 4 - Stocks 1501–2000)
 
 on:
-  schedule:
-    - cron: '45 1 * * *'
   workflow_dispatch:
 
 jobs:
