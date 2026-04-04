@@ -24,8 +24,8 @@ START_ROW = SHARD_INDEX * SHARD_SIZE
 END_ROW = START_ROW + SHARD_SIZE
 checkpoint_file = os.getenv("CHECKPOINT_FILE", f"checkpoint_day_{SHARD_INDEX}.txt")
 
-EXPECTED_COUNT = 24
-BATCH_SIZE = 100
+EXPECTED_COUNT = 5   # ✅ ONLY 5 VALUES
+BATCH_SIZE = 5
 RESTART_EVERY_ROWS = 20
 COOKIE_FILE = os.getenv("COOKIE_FILE", "cookies.json")
 CHROME_DRIVER_PATH = ChromeDriverManager().install()
@@ -83,7 +83,7 @@ def create_driver():
     drv = webdriver.Chrome(service=Service(CHROME_DRIVER_PATH), options=opts)
     drv.set_page_load_timeout(60)
 
-    # Load cookies (important for TradingView)
+    # Load cookies (optional)
     if os.path.exists(COOKIE_FILE):
         try:
             drv.get("https://in.tradingview.com/")
@@ -125,23 +125,16 @@ def restart_driver():
 # ---------------- SCRAPER ---------------- #
 def get_values(drv):
     try:
-        selectors = [
-            "div[class*='value']",
-            "div[data-name='legend-value']",
-            "div[class*='legend']",
-            "span[class*='value']"
-        ]
-
         vals = []
 
-        for sel in selectors:
-            elements = drv.find_elements(By.CSS_SELECTOR, sel)
-            for el in elements:
-                txt = el.text.strip()
-                if txt and txt not in vals:
-                    vals.append(txt)
+        elements = drv.find_elements(By.CSS_SELECTOR, "div[data-name='legend-value']")
 
-        log(f"   Found {len(vals)} values")
+        for el in elements:
+            txt = el.text.strip()
+            if txt:
+                vals.append(txt)
+
+        log(f"   Found {len(vals)} values -> {vals}")
         return vals
 
     except Exception as e:
@@ -158,33 +151,21 @@ def scrape_day(url):
             drv.get(url)
 
             wait = WebDriverWait(drv, 20)
-            wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-
-            # IMPORTANT: give time for TradingView to load
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-name='legend']")))
             time.sleep(6)
 
             vals = get_values(drv)
 
-            if len(vals) < EXPECTED_COUNT:
-                for scroll_y in [500, 1000, 1500, 2000]:
-                    drv.execute_script(f"window.scrollTo(0, {scroll_y});")
-                    time.sleep(2)
-                    new_vals = get_values(drv)
-
-                    if len(new_vals) > len(vals):
-                        vals = new_vals
-
-                    if len(vals) >= EXPECTED_COUNT:
-                        break
-
             browser_url = drv.current_url
-            found_count = len(vals)
 
-            if found_count >= EXPECTED_COUNT:
-                return vals[:EXPECTED_COUNT], "OK", url, browser_url
-            else:
-                padded_vals = (vals + [""] * EXPECTED_COUNT)[:EXPECTED_COUNT]
-                return padded_vals, f"Only {found_count} Found", url, browser_url
+            # Take only first 5 values
+            vals = vals[:EXPECTED_COUNT]
+
+            # Pad if less than 5
+            if len(vals) < EXPECTED_COUNT:
+                vals += [""] * (EXPECTED_COUNT - len(vals))
+
+            return vals, f"{len(vals)} Values", url, browser_url
 
         except Exception as e:
             log(f"   ❌ Attempt {attempt + 1} Failed: {str(e)[:100]}")
@@ -233,7 +214,7 @@ try:
             "values": [vals]
         })
         batch_list.append({"range": f"{STATUS_COL}{row_idx}", "values": [[status]]})
-        batch_list.append({"range": f"{SHEET_URL_COL}{row_idx}", "values": [[sheet_url_used]]})
+        batch_list.append({"range": f"{SHEET_URL_COL}{row_idx}", "values": [[url]]})
         batch_list.append({"range": f"{BROWSER_URL_COL}{row_idx}", "values": [[browser_url_used]]})
 
         with open(checkpoint_file, "w") as f:
@@ -243,7 +224,7 @@ try:
             restart_driver()
 
         if len(batch_list) // 6 >= BATCH_SIZE:
-            log(f"🚀 Uploading batch...")
+            log("🚀 Uploading batch...")
             api_retry(sheet_data.batch_update, batch_list, value_input_option="RAW")
             batch_list = []
 
