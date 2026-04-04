@@ -31,28 +31,35 @@ def create_driver():
     opts = Options()
     opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-dev-shm-usage")  # Fixes "Bus error" / Crash in Docker/Actions
     opts.add_argument("--disable-gpu")
     opts.add_argument("--window-size=1920,1080")
+    opts.add_argument("--remote-debugging-port=9222")
+    opts.add_argument("--disable-extensions")
+    opts.add_argument("--proxy-server='direct://'")
+    opts.add_argument("--proxy-bypass-list=*")
     opts.add_argument("--blink-settings=imagesEnabled=false")
-    opts.add_experimental_option('excludeSwitches', ['enable-logging'])
-    opts.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
+    
+    # Anti-bot detection bypass
+    opts.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
+    opts.add_experimental_option('useAutomationExtension', False)
+    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()),
-        options=opts
-    )
-    driver.set_page_load_timeout(40)
+    try:
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()),
+            options=opts
+        )
+        driver.set_page_load_timeout(45)
+    except Exception as e:
+        log(f"❌ Failed to start Chrome: {e}")
+        return None
 
-    # ---- COOKIE LOGIC (UNCHANGED) ----
+    # ---- COOKIE LOGIC ----
     if os.path.exists("cookies.json"):
         try:
             driver.get("https://in.tradingview.com/")
-            time.sleep(3)
+            time.sleep(4)
             with open("cookies.json", "r") as f:
                 cookies = json.load(f)
             for c in cookies:
@@ -73,17 +80,17 @@ def create_driver():
 
 # ---------------- SCRAPER LOGIC ---------------- #
 def scrape_tradingview(driver, url):
+    if not driver:
+        return "RESTART"
     try:
         driver.get(url)
-        WebDriverWait(driver, 45).until(
-            EC.visibility_of_element_located((
-                By.XPATH,
-                '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'
-            ))
+        # Increased wait time and target a specific common container class
+        WebDriverWait(driver, 40).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "valueValue-l31H9iuA"))
         )
         soup = BeautifulSoup(driver.page_source, "html.parser")
         values = [
-            el.get_text().replace('−', '-').replace('∅', 'None')
+            el.get_text().strip().replace('−', '-').replace('∅', 'None')
             for el in soup.find_all(
                 "div",
                 class_="valueValue-l31H9iuA apply-common-tooltip"
@@ -91,9 +98,10 @@ def scrape_tradingview(driver, url):
         ]
         return values
     except (TimeoutException, NoSuchElementException):
+        log("⚠️ Elements not found (Timeout/Missing)")
         return []
-    except WebDriverException:
-        log("🛑 Browser Crash Detected")
+    except WebDriverException as e:
+        log(f"🛑 Browser Crash Detected: {str(e)[:50]}")
         return "RESTART"
 
 # ---------------- INITIAL SETUP ---------------- #
@@ -115,7 +123,7 @@ except Exception as e:
 # ---------------- MAIN LOOP ---------------- #
 driver = create_driver()
 batch_list = []
-BATCH_SIZE = 50
+BATCH_SIZE = 40  # Slightly smaller batches for reliability
 
 try:
     for i in range(last_i, len(company_list)):
@@ -136,6 +144,7 @@ try:
                 driver.quit()
             except:
                 pass
+            time.sleep(5)
             driver = create_driver()
             values = scrape_tradingview(driver, url)
             if values == "RESTART":
@@ -151,6 +160,7 @@ try:
         else:
             log(f"⏭️ Skipped {name}")
 
+        # Batch Update Logic
         if len(batch_list) >= BATCH_SIZE:
             try:
                 sheet_data.batch_update(batch_list)
@@ -159,13 +169,13 @@ try:
             except Exception as e:
                 log(f"⚠️ API Error: {e}")
                 if "429" in str(e):
-                    log("⏳ Quota hit, sleeping 60s...")
-                    time.sleep(60)
+                    log("⏳ Quota hit, sleeping 65s...")
+                    time.sleep(65)
 
         with open(checkpoint_file, "w") as f:
             f.write(str(i + 1))
 
-        time.sleep(0.5)
+        time.sleep(1) # Prevent CPU spiking
 
 finally:
     if batch_list:
@@ -174,5 +184,6 @@ finally:
             log(f"✅ Final save: {len(batch_list)} rows")
         except:
             pass
-    driver.quit()
-    log("🏁 Scraping completed successfully")
+    if driver:
+        driver.quit()
+    log("🏁 Scraping completed.")
