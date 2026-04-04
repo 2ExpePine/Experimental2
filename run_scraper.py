@@ -30,7 +30,7 @@ RESTART_EVERY_ROWS = 20
 COOKIE_FILE = os.getenv("COOKIE_FILE", "cookies.json")
 CHROME_DRIVER_PATH = ChromeDriverManager().install()
 
-DAY_OUTPUT_START_COL = 3  # Data starts in Column C
+DAY_OUTPUT_START_COL = 3  # Column C
 
 # ---------------- UTILS ---------------- #
 def col_num_to_letter(n):
@@ -43,7 +43,6 @@ def col_num_to_letter(n):
 DAY_START_COL_LETTER = col_num_to_letter(DAY_OUTPUT_START_COL)
 DAY_END_COL_LETTER = col_num_to_letter(DAY_OUTPUT_START_COL + EXPECTED_COUNT - 1)
 
-# Dynamic debug columns after data columns
 STATUS_COL = col_num_to_letter(DAY_OUTPUT_START_COL + EXPECTED_COUNT)
 SHEET_URL_COL = col_num_to_letter(DAY_OUTPUT_START_COL + EXPECTED_COUNT + 1)
 BROWSER_URL_COL = col_num_to_letter(DAY_OUTPUT_START_COL + EXPECTED_COUNT + 2)
@@ -78,15 +77,13 @@ def create_driver():
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--window-size=1920,1080")
     opts.add_argument("--disable-gpu")
-    opts.add_argument("--blink-settings=imagesEnabled=false")
     opts.add_argument("--disable-blink-features=AutomationControlled")
     opts.add_argument("--incognito")
-    opts.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
-    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
     drv = webdriver.Chrome(service=Service(CHROME_DRIVER_PATH), options=opts)
     drv.set_page_load_timeout(60)
 
+    # Load cookies (important for TradingView)
     if os.path.exists(COOKIE_FILE):
         try:
             drv.get("https://in.tradingview.com/")
@@ -95,13 +92,16 @@ def create_driver():
 
             for c in cookies:
                 try:
-                    cookie_data = {k: v for k, v in c.items() if k in ("name", "value", "path", "secure", "expiry")}
-                    drv.add_cookie(cookie_data)
+                    drv.add_cookie({
+                        "name": c["name"],
+                        "value": c["value"],
+                        "path": c.get("path", "/"),
+                    })
                 except:
                     continue
 
             drv.refresh()
-            time.sleep(2)
+            time.sleep(3)
         except:
             pass
 
@@ -125,10 +125,25 @@ def restart_driver():
 # ---------------- SCRAPER ---------------- #
 def get_values(drv):
     try:
-        elements = drv.find_elements(By.CSS_SELECTOR, "div[class*='valueValue']")
-        vals = [el.text.strip() for el in elements if el.text.strip()]
+        selectors = [
+            "div[class*='value']",
+            "div[data-name='legend-value']",
+            "div[class*='legend']",
+            "span[class*='value']"
+        ]
+
+        vals = []
+
+        for sel in selectors:
+            elements = drv.find_elements(By.CSS_SELECTOR, sel)
+            for el in elements:
+                txt = el.text.strip()
+                if txt and txt not in vals:
+                    vals.append(txt)
+
         log(f"   Found {len(vals)} values")
         return vals
+
     except Exception as e:
         log(f"   get_values error: {e}")
         return []
@@ -143,16 +158,17 @@ def scrape_day(url):
             drv.get(url)
 
             wait = WebDriverWait(drv, 20)
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div[class*='valueValue']")))
+            wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
 
-            time.sleep(2)
+            # IMPORTANT: give time for TradingView to load
+            time.sleep(6)
+
             vals = get_values(drv)
 
-            # Try extra scrolls if less values found
             if len(vals) < EXPECTED_COUNT:
                 for scroll_y in [500, 1000, 1500, 2000]:
                     drv.execute_script(f"window.scrollTo(0, {scroll_y});")
-                    time.sleep(1.5)
+                    time.sleep(2)
                     new_vals = get_values(drv)
 
                     if len(new_vals) > len(vals):
@@ -171,12 +187,12 @@ def scrape_day(url):
                 return padded_vals, f"Only {found_count} Found", url, browser_url
 
         except Exception as e:
-            log(f"   ❌ Scrape Attempt {attempt + 1} Failed: {str(e)[:100]}")
+            log(f"   ❌ Attempt {attempt + 1} Failed: {str(e)[:100]}")
             restart_driver()
 
     return [""] * EXPECTED_COUNT, "Failed", url, ""
 
-# ---------------- MAIN ---------------- #
+# ---------------- SHEETS ---------------- #
 def connect_sheets():
     gc = gspread.service_account("credentials.json")
     sh_main = gc.open("Stock List").worksheet("Sheet1")
@@ -186,12 +202,10 @@ def connect_sheets():
 try:
     sheet_main, sheet_data = connect_sheets()
     company_list = api_retry(sheet_main.col_values, 1)
-    url_list = api_retry(sheet_main.col_values, 5)  # URL in Column D
+    url_list = api_retry(sheet_main.col_values, 5)  # ✅ Column E
+
     log(f"✅ Ready. Processing Rows {last_i + 1} to {min(END_ROW, len(company_list))}")
-    log(f"✅ Data Range: {DAY_START_COL_LETTER}:{DAY_END_COL_LETTER}")
-    log(f"✅ Status Column: {STATUS_COL}")
-    log(f"✅ Sheet URL Column: {SHEET_URL_COL}")
-    log(f"✅ Browser URL Column: {BROWSER_URL_COL}")
+
 except Exception as e:
     log(f"❌ Initial Connection Error: {e}")
     sys.exit(1)
@@ -207,6 +221,7 @@ try:
         url = url_list[i].strip() if i < len(url_list) and "http" in url_list[i] else None
 
         log(f"🔍 [{i + 1}/{loop_end}] {name}")
+
         vals, status, sheet_url_used, browser_url_used = scrape_day(url)
 
         row_idx = i + 1
@@ -228,7 +243,7 @@ try:
             restart_driver()
 
         if len(batch_list) // 6 >= BATCH_SIZE:
-            log(f"🚀 Uploading batch of {BATCH_SIZE} rows...")
+            log(f"🚀 Uploading batch...")
             api_retry(sheet_data.batch_update, batch_list, value_input_option="RAW")
             batch_list = []
 
@@ -238,4 +253,4 @@ finally:
         api_retry(sheet_data.batch_update, batch_list, value_input_option="RAW")
 
     restart_driver()
-    log("🏁 DAY SHARD COMPLETED.")
+    log("🏁 COMPLETED.")
