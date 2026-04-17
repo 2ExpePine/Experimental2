@@ -7,7 +7,6 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-# Fix: Ensure you have webdriver_manager installed
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -47,7 +46,7 @@ def create_driver():
         service=Service(ChromeDriverManager().install()),
         options=opts
     )
-    driver.set_page_load_timeout(40)
+    driver.set_page_load_timeout(45)
 
     if os.path.exists("cookies.json"):
         try:
@@ -77,28 +76,30 @@ def scrape_tradingview(driver, url):
         log(f"🔗 Visiting URL: {url}")
         driver.get(url)
         
-        # Wait for the main data container
-        target_xpath = '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'
+        # INCREASED WAIT: Charts take a long time to load layout
+        # Updated wait to look for the generic value class instead of a long brittle XPath
         try:
-            WebDriverWait(driver, 45).until(
-                EC.visibility_of_element_located((By.XPATH, target_xpath))
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "valueValue-l31H9iuA"))
             )
         except TimeoutException:
-            log(f"❌ Timeout: Data element not found at {url}")
+            # Check if we are stuck on a login or cookie wall
+            log(f"❌ Timeout: Element 'valueValue-l31H9iuA' not found. Page might not have loaded metrics.")
             return []
 
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        # Find all values based on the class provided
-        value_elements = soup.find_all("div", class_="valueValue-l31H9iuA apply-common-tooltip")
+        value_elements = soup.find_all("div", class_="valueValue-l31H9iuA")
         
         if not value_elements:
-            log(f"⚠️ No data elements found with specified class on {url}")
+            log(f"⚠️ Page loaded but 0 items found for class 'valueValue-l31H9iuA'")
             return []
 
         values = [
-            el.get_text().replace('−', '-').replace('∅', 'None')
+            el.get_text().replace('−', '-').replace('∅', 'None').strip()
             for el in value_elements
         ]
+        
+        log(f"📊 Extracted {len(values)} metrics")
         return values
 
     except WebDriverException as e:
@@ -136,9 +137,8 @@ try:
         url = company_list[i]
         name = name_list[i] if i < len(name_list) else f"Row {i}"
 
-        # Logic check for empty URLs
-        if not url or str(url).strip() == "":
-            log(f"⏩ Row {i}: Skipping because URL is empty.")
+        if not url or "http" not in str(url):
+            log(f"⏩ Row {i}: Skipping (Invalid URL)")
             continue
 
         log(f"--- Processing [{i}] {name} ---")
@@ -146,16 +146,12 @@ try:
         values = scrape_tradingview(driver, url)
 
         if values == "RESTART":
-            log(f"🔄 Restarting driver for: {name}")
-            try:
-                driver.quit()
-            except:
-                pass
+            log(f"🔄 Restarting driver...")
+            try: driver.quit()
+            except: pass
             driver = create_driver()
             values = scrape_tradingview(driver, url)
-            if values == "RESTART":
-                log(f"❌ Failed again after restart for {name}")
-                values = []
+            if values == "RESTART": values = []
 
         if isinstance(values, list) and values:
             target_row = i + 1
@@ -163,33 +159,26 @@ try:
                 "range": f"A{target_row}",
                 "values": [[name, current_date] + values]
             })
-            log(f"✅ Scraped {len(values)} metrics for {name}")
             log(f"📦 Buffered ({len(batch_list)}/{BATCH_SIZE})")
         else:
-            log(f"⏭️ SKIPPED: {name} (Reason: No data extracted or Timeout)")
+            log(f"⏭️ SKIPPED: {name} (No data found)")
 
         if len(batch_list) >= BATCH_SIZE:
             try:
                 sheet_data.batch_update(batch_list)
-                log(f"🚀 Saved {len(batch_list)} rows to Google Sheets")
+                log(f"🚀 Batch Saved")
                 batch_list = []
             except Exception as e:
                 log(f"⚠️ API Error: {e}")
-                if "429" in str(e):
-                    log("⏳ Quota hit, sleeping 60s...")
-                    time.sleep(60)
+                time.sleep(60)
 
         with open(checkpoint_file, "w") as f:
             f.write(str(i + 1))
 
-        time.sleep(1) # Slightly increased delay to help stability
+        time.sleep(2) # Added cooldown to avoid bot detection
 
 finally:
     if batch_list:
-        try:
-            sheet_data.batch_update(batch_list)
-            log(f"✅ Final save: {len(batch_list)} rows")
-        except:
-            pass
+        try: sheet_data.batch_update(batch_list)
+        except: pass
     driver.quit()
-    log("🏁 Scraping session ended.")
