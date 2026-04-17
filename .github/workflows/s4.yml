@@ -6,31 +6,39 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-22.04
-
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 5  # Run all 5 shards simultaneously
       matrix:
-        shard: [15,16,17,18,19]
+        shard: [15, 16, 17, 18, 19]
 
     env:
       SHARD_STEP: 20
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip' # Speeds up setup by caching dependencies
 
-      - run: pip install selenium beautifulsoup4 gspread webdriver-manager
-      - run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
-      - run: echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
+      - name: Install Dependencies
+        run: |
+          pip install selenium beautifulsoup4 gspread webdriver-manager
 
-      - run: |
+      - name: Prepare Files
+        run: |
+          echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
+          echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
           FILE="checkpoint_group4_${{ matrix.shard }}.txt"
           [ ! -f "$FILE" ] && echo "1" > "$FILE"
 
-      - env:
+      - name: Run Scraper
+        env:
           SHARD_INDEX: ${{ matrix.shard }}
           CHECKPOINT_FILE: checkpoint_group4_${{ matrix.shard }}.txt
+          PYTHONUNBUFFERED: "1"
         run: python run_scraper.py
