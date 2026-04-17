@@ -48,7 +48,6 @@ def create_driver():
     )
     driver.set_page_load_timeout(40)
 
-    # ---- COOKIE LOGIC (UNCHANGED) ----
     if os.path.exists("cookies.json"):
         try:
             driver.get("https://in.tradingview.com/")
@@ -75,22 +74,29 @@ def create_driver():
 def scrape_tradingview(driver, url):
     try:
         driver.get(url)
-        WebDriverWait(driver, 45).until(
-            EC.visibility_of_element_located((
-                By.XPATH,
-                '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'
-            ))
+        # UPDATED: Use a more reliable CSS selector that looks for the 'value' class prefix
+        # This waits for ANY element that looks like a data value to appear
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div[class*='valueValue-']"))
         )
+        
+        # Give a small buffer for all values to populate
+        time.sleep(2)
+        
         soup = BeautifulSoup(driver.page_source, "html.parser")
+        
+        # UPDATED: Using a lambda to find classes that START with the known prefix
+        # this bypasses the dynamic 'l31H9iuA' suffix
+        value_elements = soup.find_all("div", class_=lambda x: x and x.startswith("valueValue-"))
+        
         values = [
-            el.get_text().replace('−', '-').replace('∅', 'None')
-            for el in soup.find_all(
-                "div",
-                class_="valueValue-l31H9iuA apply-common-tooltip"
-            )
+            el.get_text().replace('−', '-').replace('∅', 'None').strip()
+            for el in value_elements
         ]
+        
         return values
-    except (TimeoutException, NoSuchElementException):
+    except (TimeoutException, NoSuchElementException) as e:
+        log(f"❌ Element not found on: {url}")
         return []
     except WebDriverException:
         log("🛑 Browser Crash Detected")
@@ -125,8 +131,12 @@ try:
             break
 
         url = company_list[i]
-        name = name_list[i] if i < len(name_list) else f"Row {i}"
+        # Basic URL validation
+        if not url or not url.startswith("http"):
+            log(f"⏭️ Invalid URL at row {i}")
+            continue
 
+        name = name_list[i] if i < len(name_list) else f"Row {i}"
         log(f"🔍 [{i}] Scraping: {name}")
 
         values = scrape_tradingview(driver, url)
@@ -141,7 +151,7 @@ try:
             if values == "RESTART":
                 values = []
 
-        if isinstance(values, list) and values:
+        if isinstance(values, list) and len(values) > 0:
             target_row = i + 1
             batch_list.append({
                 "range": f"A{target_row}",
@@ -149,7 +159,7 @@ try:
             })
             log(f"📦 Buffered ({len(batch_list)}/{BATCH_SIZE})")
         else:
-            log(f"⏭️ Skipped {name}")
+            log(f"⏭️ Skipped {name} (No data found)")
 
         if len(batch_list) >= BATCH_SIZE:
             try:
@@ -165,8 +175,6 @@ try:
         with open(checkpoint_file, "w") as f:
             f.write(str(i + 1))
 
-        time.sleep(0.5)
-
 finally:
     if batch_list:
         try:
@@ -175,4 +183,4 @@ finally:
         except:
             pass
     driver.quit()
-    log("🏁 Scraping completed successfully")
+    log("🏁 Scraping completed")
