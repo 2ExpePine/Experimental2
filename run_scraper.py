@@ -77,7 +77,7 @@ def create_driver():
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--window-size=1920,1080")
     opts.add_argument("--disable-blink-features=AutomationControlled")
-    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
     drv = webdriver.Chrome(service=Service(CHROME_DRIVER_PATH), options=opts)
     
@@ -110,8 +110,17 @@ def restart_driver():
 # ---------------- SCRAPER ---------------- #
 def get_values(drv):
     try:
-        elements = drv.find_elements(By.CSS_SELECTOR, "[class*='valueValue']")
-        vals = [el.text.strip() for el in elements if el.text.strip()]
+        # UPDATED SELECTOR: Targeting the value span more broadly to handle TV updates
+        elements = drv.find_elements(By.XPATH, "//span[contains(@class, 'value-') or contains(@class, 'valueValue')]")
+        if not elements:
+            # Fallback for fundamental data table cells
+            elements = drv.find_elements(By.CSS_SELECTOR, "div[class*='column-'] span[class*='value-']")
+            
+        vals = []
+        for el in elements:
+            text = el.text.strip()
+            if text and any(char.isdigit() for char in text): # Ensure it contains a number
+                vals.append(text)
         return vals
     except:
         return []
@@ -123,15 +132,24 @@ def scrape_day(url):
         try:
             drv = ensure_driver()
             drv.get(url)
-            WebDriverWait(drv, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='valueValue']")))
             
-            time.sleep(3) # Initial render wait
+            # Updated Wait: Wait for the main container instead of specific volatile classes
+            WebDriverWait(drv, 15).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+            
+            time.sleep(5) # Give complex React charts time to hydrate
+            
+            # Try to scroll to trigger lazy loading of "Key Stats"
+            drv.execute_script("window.scrollTo(0, 800);")
+            time.sleep(2)
+            
             vals = get_values(drv)
 
             if len(vals) < EXPECTED_COUNT:
-                for scroll_y in [600, 1200, 2000]:
+                for scroll_y in [1200, 1800]:
                     drv.execute_script(f"window.scrollTo(0, {scroll_y});")
-                    time.sleep(1.5)
+                    time.sleep(2)
                     new_vals = get_values(drv)
                     if len(new_vals) > len(vals): vals = new_vals
                     if len(vals) >= EXPECTED_COUNT: break
@@ -139,17 +157,16 @@ def scrape_day(url):
             browser_url = drv.current_url
             found_count = len(vals)
             
-            # Logic: Strictly OK or NOT OK
             if found_count >= EXPECTED_COUNT:
-                log(f"   ✅ Found {found_count}/{EXPECTED_COUNT}")
+                log(f"    ✅ Found {found_count}/{EXPECTED_COUNT}")
                 return vals[:EXPECTED_COUNT], "OK", url, browser_url
             else:
-                log(f"   ⚠️ Found {found_count}/{EXPECTED_COUNT} (Marking NOT OK)")
+                log(f"    ⚠️ Found {found_count}/{EXPECTED_COUNT} (Marking NOT OK)")
                 padded = (vals + [""] * EXPECTED_COUNT)[:EXPECTED_COUNT]
                 return padded, "NOT OK", url, browser_url
                 
-        except Exception:
-            log(f"   ❌ Attempt {attempt + 1} Failed")
+        except Exception as e:
+            log(f"    ❌ Attempt {attempt + 1} Failed: {str(e)[:50]}")
             restart_driver()
             
     return [""] * EXPECTED_COUNT, "NOT OK", url, ""
