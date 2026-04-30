@@ -2,7 +2,6 @@ name: T1 (Shards 0–4)
 
 on:
   workflow_dispatch:
-  workflow_call:
 
 jobs:
   scrape:
@@ -12,35 +11,28 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        shard: [0, 1, 2, 3, 4]
+        shard: [0,1,2,3,4]
 
     env:
       SHARD_STEP: 20
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
-        run: pip install selenium beautifulsoup4 gspread webdriver-manager
+      - run: pip install selenium beautifulsoup4 gspread webdriver-manager
 
-      - name: Setup Credentials
-        run: |
-          echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
-          echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
+      - run: echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
+      - run: echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
 
-      - name: Prepare Checkpoint
-        run: |
+      - run: |
           FILE="checkpoint_group1_${{ matrix.shard }}.txt"
-          if [ ! -f "$FILE" ]; then echo "0" > "$FILE"; fi
+          [ ! -f "$FILE" ] && echo "0" > "$FILE"
 
-      - name: Run Scraper
-        env:
+      - env:
           SHARD_INDEX: ${{ matrix.shard }}
           CHECKPOINT_FILE: checkpoint_group1_${{ matrix.shard }}.txt
         run: python run_scraper.py
