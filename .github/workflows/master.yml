@@ -1,0 +1,39 @@
+name: Master Workflow
+
+on:
+  workflow_dispatch:
+
+jobs:
+
+  # Step 1: Run s1 and s2 in parallel
+  run_s1:
+    uses: ./.github/workflows/s1.yml
+
+  run_s2:
+    uses: ./.github/workflows/s2.yml
+
+  # Step 2: Wait 10 minutes
+  wait_after_s1_s2:
+    runs-on: ubuntu-latest
+    needs: [run_s1, run_s2]
+    steps:
+      - name: Wait 10 minutes
+        run: sleep 600
+
+  # Step 3: Run s3
+  run_s3:
+    uses: ./.github/workflows/s3.yml
+    needs: wait_after_s1_s2
+
+  # Step 4: Wait again 10 minutes
+  wait_after_s3:
+    runs-on: ubuntu-latest
+    needs: run_s3
+    steps:
+      - name: Wait 10 minutes
+        run: sleep 600
+
+  # Step 5: Run s4
+  run_s4:
+    uses: ./.github/workflows/s4.yml
+    needs: wait_after_s3
