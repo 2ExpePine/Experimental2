@@ -3,6 +3,12 @@ name: Master Scraper Controller
 on:
   workflow_dispatch:
 
+# --- ADD THIS PERMISSIONS BLOCK ---
+permissions:
+  actions: write
+  contents: read
+# ----------------------------------
+
 jobs:
   t1_t2_parallel:
     name: Run T1 and T2
