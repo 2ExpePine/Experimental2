@@ -1,39 +1,66 @@
-name: Master Workflow
+name: Master Scraper Controller
 
 on:
   workflow_dispatch:
 
 jobs:
-
-  # Step 1: Run s1 and s2 in parallel
-  run_s1:
-    uses: ./.github/workflows/s1.yml
-
-  run_s2:
-    uses: ./.github/workflows/s2.yml
-
-  # Step 2: Wait 10 minutes
-  wait_after_s1_s2:
+  t1_t2_parallel:
+    name: Run T1 and T2
     runs-on: ubuntu-latest
-    needs: [run_s1, run_s2]
     steps:
-      - name: Wait 10 minutes
-        run: sleep 600
+      - name: Trigger T1
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 't1.yml',
+              ref: 'main'
+            })
+      - name: Trigger T2
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 't2.yml',
+              ref: 'main'
+            })
 
-  # Step 3: Run s3
-  run_s3:
-    uses: ./.github/workflows/s3.yml
-    needs: wait_after_s1_s2
-
-  # Step 4: Wait again 10 minutes
-  wait_after_s3:
+  t3_delayed:
+    name: Wait 10m then Run T3
+    needs: t1_t2_parallel
     runs-on: ubuntu-latest
-    needs: run_s3
     steps:
-      - name: Wait 10 minutes
+      - name: Delay
         run: sleep 600
+      - name: Trigger T3
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 't3.yml',
+              ref: 'main'
+            })
 
-  # Step 5: Run s4
-  run_s4:
-    uses: ./.github/workflows/s4.yml
-    needs: wait_after_s3
+  t4_delayed:
+    name: Wait 10m then Run T4
+    needs: t3_delayed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delay
+        run: sleep 600
+      - name: Trigger T4
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 't4.yml',
+              ref: 'main'
+            })
