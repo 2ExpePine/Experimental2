@@ -28,7 +28,6 @@ last_i = int(open(checkpoint_file).read()) if os.path.exists(checkpoint_file) el
 def create_driver():
     log("🌐 Initializing Stealth Chrome for GitHub Actions...")
     
-    # We create options inside the function to avoid "RuntimeError: you cannot reuse the ChromeOptions object"
     def get_options():
         opt = uc.ChromeOptions()
         opt.add_argument("--headless")
@@ -36,14 +35,16 @@ def create_driver():
         opt.add_argument("--disable-dev-shm-usage")
         opt.add_argument("--disable-gpu")
         opt.add_argument("--window-size=1920,1080")
+        # Bypass some GitHub environment checks
+        opt.add_argument("--disable-blink-features=AutomationControlled")
         return opt
 
     try:
-        # We don't specify version_main here anymore to let UC auto-detect
+        # We allow UC to try and detect the version automatically first
         driver = uc.Chrome(options=get_options(), use_subprocess=True) 
     except Exception as e:
-        log(f"⚠️ Subprocess launch failed: {str(e)[:100]}")
-        # Fallback to standard launch
+        log(f"⚠️ Initial launch failed: {str(e)[:100]}")
+        # If it fails, we try a standard launch without subprocess
         driver = uc.Chrome(options=get_options())
 
     driver.set_page_load_timeout(60)
@@ -73,8 +74,9 @@ def create_driver():
 def scrape_tradingview(driver, url):
     try:
         driver.get(url)
-        time.sleep(random.uniform(4, 7)) 
+        time.sleep(random.uniform(5, 8)) # Give TradingView more time to load
         
+        # This is your specific value container
         target_xpath = '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'
         
         WebDriverWait(driver, 45).until(
@@ -82,6 +84,7 @@ def scrape_tradingview(driver, url):
         )
         
         soup = BeautifulSoup(driver.page_source, "html.parser")
+        # Extract the specific values
         values = [
             el.get_text().replace('−', '-').replace('∅', 'None').strip()
             for el in soup.find_all("div", class_="valueValue-l31H9iuA apply-common-tooltip")
@@ -89,6 +92,7 @@ def scrape_tradingview(driver, url):
         return values
         
     except (TimeoutException, NoSuchElementException):
+        log("⚠️ Elements not found or Timeout")
         return []
     except WebDriverException as e:
         log(f"🛑 Browser Error: {str(e)[:50]}")
@@ -160,7 +164,7 @@ try:
         with open(checkpoint_file, "w") as f:
             f.write(str(i + 1))
 
-        time.sleep(random.uniform(2, 5))
+        time.sleep(random.uniform(3, 6))
 
 finally:
     if batch_list:
