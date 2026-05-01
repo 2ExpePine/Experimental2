@@ -38,33 +38,28 @@ def create_driver():
         return opt
 
     try:
-        # FORCE VERSION 147 to match your GitHub Runner's current version
+        # Pinned to 147 as per your environment logs
         driver = uc.Chrome(options=get_options(), use_subprocess=True, version_main=147) 
     except Exception as e:
-        log(f"⚠️ Primary launch failed, trying fallback: {str(e)[:100]}")
-        # Secondary fallback with version 147
+        log(f"⚠️ Launch failed, trying fallback: {str(e)[:50]}")
         driver = uc.Chrome(options=get_options(), version_main=147)
 
-    driver.set_page_load_timeout(60)
+    driver.set_page_load_timeout(90)
 
     if os.path.exists("cookies.json"):
         try:
             driver.get("https://in.tradingview.com/")
-            time.sleep(random.uniform(3, 5))
+            time.sleep(5)
             with open("cookies.json", "r") as f:
                 cookies = json.load(f)
             for c in cookies:
                 try:
-                    driver.add_cookie({
-                        k: v for k, v in c.items()
-                        if k in ("name", "value", "path", "secure", "expiry")
-                    })
+                    driver.add_cookie({k: v for k, v in c.items() if k in ("name", "value", "path", "secure", "expiry")})
                 except: continue
             driver.refresh()
-            time.sleep(2)
+            time.sleep(3)
             log("✅ Cookies applied")
-        except Exception as e:
-            log(f"⚠️ Cookie error: {str(e)[:60]}")
+        except: pass
 
     return driver
 
@@ -72,25 +67,43 @@ def create_driver():
 def scrape_tradingview(driver, url):
     try:
         driver.get(url)
-        time.sleep(random.uniform(6, 10)) 
+        # Give extra time for the technical section to render
+        time.sleep(random.uniform(8, 12)) 
         
-        target_xpath = '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'
-        
-        WebDriverWait(driver, 60).until(
-            EC.visibility_of_element_located((By.XPATH, target_xpath))
-        )
-        
-        soup = BeautifulSoup(driver.page_source, "html.parser")
-        values = [
-            el.get_text().replace('−', '-').replace('∅', 'None').strip()
-            for el in soup.find_all("div", class_="valueValue-l31H9iuA apply-common-tooltip")
+        # Scroll down slightly to trigger lazy-loaded elements
+        driver.execute_script("window.scrollTo(0, 400);")
+        time.sleep(2)
+
+        # Try multiple XPaths in case the layout shifts
+        potential_xpaths = [
+            '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div',
+            '//div[contains(@class, "valueValue-l31H9iuA")]'
         ]
+        
+        found = False
+        for path in potential_xpaths:
+            try:
+                WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.XPATH, path)))
+                found = True
+                break
+            except: continue
+
+        if not found:
+            return []
+
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        # Look for the specific value class you need
+        raw_values = soup.find_all("div", class_=lambda x: x and "valueValue-" in x)
+        
+        values = [
+            v.get_text().replace('−', '-').replace('∅', 'None').strip()
+            for v in raw_values
+        ]
+        
         return values
         
-    except (TimeoutException, NoSuchElementException):
-        return []
-    except WebDriverException as e:
-        log(f"🛑 Browser Error: {str(e)[:50]}")
+    except Exception as e:
+        log(f"🛑 Error during scrape: {str(e)[:50]}")
         return "RESTART"
 
 # ---------------- INITIAL SETUP ---------------- #
@@ -112,14 +125,13 @@ except Exception as e:
 # ---------------- MAIN LOOP ---------------- #
 driver = create_driver()
 batch_list = []
-BATCH_SIZE = 10
+BATCH_SIZE = 5 # Reduced batch size for safer saving
 
 try:
     for i in range(last_i, len(company_list)):
         if i % SHARD_STEP != SHARD_INDEX:
             continue
-        if i >= 2500:
-            break
+        if i >= 2500: break
 
         url = company_list[i]
         name = name_list[i] if i < len(name_list) else f"Row {i}"
@@ -135,7 +147,7 @@ try:
             values = scrape_tradingview(driver, url)
             if values == "RESTART": values = []
 
-        if isinstance(values, list) and values:
+        if isinstance(values, list) and len(values) > 0:
             target_row = i + 1
             batch_list.append({
                 "range": f"A{target_row}",
@@ -143,23 +155,20 @@ try:
             })
             log(f"📦 Buffered ({len(batch_list)}/{BATCH_SIZE})")
         else:
-            log(f"⏭️ Skipped {name}")
+            log(f"⏭️ Skipped {name} (No data found)")
 
         if len(batch_list) >= BATCH_SIZE:
             try:
                 sheet_data.batch_update(batch_list)
                 log(f"🚀 Saved batch to Google Sheets")
                 batch_list = []
-                time.sleep(random.uniform(5, 10)) 
+                time.sleep(random.uniform(5, 8)) 
             except Exception as e:
-                log(f"⚠️ Sheets API Error: {e}")
-                if "429" in str(e):
-                    time.sleep(60)
+                log(f"⚠️ Sheets Error: {e}")
+                time.sleep(30)
 
         with open(checkpoint_file, "w") as f:
             f.write(str(i + 1))
-
-        time.sleep(random.uniform(3, 7))
 
 finally:
     if batch_list:
