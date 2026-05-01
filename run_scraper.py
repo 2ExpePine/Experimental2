@@ -28,19 +28,23 @@ last_i = int(open(checkpoint_file).read()) if os.path.exists(checkpoint_file) el
 def create_driver():
     log("🌐 Initializing Stealth Chrome for GitHub Actions...")
     
-    options = uc.ChromeOptions()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-    
+    # We create options inside the function to avoid "RuntimeError: you cannot reuse the ChromeOptions object"
+    def get_options():
+        opt = uc.ChromeOptions()
+        opt.add_argument("--headless")
+        opt.add_argument("--no-sandbox")
+        opt.add_argument("--disable-dev-shm-usage")
+        opt.add_argument("--disable-gpu")
+        opt.add_argument("--window-size=1920,1080")
+        return opt
+
     try:
-        # use_subprocess=True often helps in containerized environments like GitHub Actions
-        driver = uc.Chrome(options=options, use_subprocess=True) 
+        # We don't specify version_main here anymore to let UC auto-detect
+        driver = uc.Chrome(options=get_options(), use_subprocess=True) 
     except Exception as e:
-        log(f"⚠️ Initial launch failed, trying standard: {e}")
-        driver = uc.Chrome(options=options)
+        log(f"⚠️ Subprocess launch failed: {str(e)[:100]}")
+        # Fallback to standard launch
+        driver = uc.Chrome(options=get_options())
 
     driver.set_page_load_timeout(60)
 
@@ -69,8 +73,7 @@ def create_driver():
 def scrape_tradingview(driver, url):
     try:
         driver.get(url)
-        # Random sleep to mimic human eye-tracking/loading time
-        time.sleep(random.uniform(3, 6)) 
+        time.sleep(random.uniform(4, 7)) 
         
         target_xpath = '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'
         
@@ -163,5 +166,6 @@ finally:
     if batch_list:
         try: sheet_data.batch_update(batch_list)
         except: pass
-    driver.quit()
+    if 'driver' in locals():
+        driver.quit()
     log("🏁 Scraping session ended.")
