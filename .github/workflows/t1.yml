@@ -20,14 +20,17 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          # These are the required libraries for Chrome on Ubuntu 24.04
+          sudo apt-get install -y libnss3 libxi6 libgbm1 libasound2t64 wget
+
+      - name: Install Python Packages
         run: |
           pip install undetected-chromedriver selenium beautifulsoup4 gspread
-          # These are often needed for Chrome on Ubuntu runners
-          sudo apt-get update
-          sudo apt-get install -y libnss3 libgconf-2-4 libxi6 libgbm1
 
-      - name: Prepare Files
+      - name: Prepare Credentials
         run: |
           echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
           echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
