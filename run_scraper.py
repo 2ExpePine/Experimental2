@@ -35,8 +35,13 @@ def create_driver():
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     
-    # Bypass simple detection
-    driver = uc.Chrome(options=options) 
+    try:
+        # use_subprocess=True often helps in containerized environments like GitHub Actions
+        driver = uc.Chrome(options=options, use_subprocess=True) 
+    except Exception as e:
+        log(f"⚠️ Initial launch failed, trying standard: {e}")
+        driver = uc.Chrome(options=options)
+
     driver.set_page_load_timeout(60)
 
     if os.path.exists("cookies.json"):
@@ -64,9 +69,9 @@ def create_driver():
 def scrape_tradingview(driver, url):
     try:
         driver.get(url)
-        time.sleep(random.uniform(2, 4)) # Wait for initial load
+        # Random sleep to mimic human eye-tracking/loading time
+        time.sleep(random.uniform(3, 6)) 
         
-        # Hardcoded specific container wait
         target_xpath = '/html/body/div[2]/div/div[5]/div/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div'
         
         WebDriverWait(driver, 45).until(
@@ -82,8 +87,8 @@ def scrape_tradingview(driver, url):
         
     except (TimeoutException, NoSuchElementException):
         return []
-    except WebDriverException:
-        log("🛑 Browser Crash Detected")
+    except WebDriverException as e:
+        log(f"🛑 Browser Error: {str(e)[:50]}")
         return "RESTART"
 
 # ---------------- INITIAL SETUP ---------------- #
@@ -141,22 +146,22 @@ try:
         if len(batch_list) >= BATCH_SIZE:
             try:
                 sheet_data.batch_update(batch_list)
-                log(f"🚀 Saved {len(batch_list)} rows")
+                log(f"🚀 Saved batch to Google Sheets")
                 batch_list = []
-                time.sleep(random.uniform(5, 10)) # Anti-block pause
+                time.sleep(random.uniform(5, 10)) 
             except Exception as e:
-                log(f"⚠️ API Error: {e}")
+                log(f"⚠️ Sheets API Error: {e}")
                 if "429" in str(e):
                     time.sleep(60)
 
         with open(checkpoint_file, "w") as f:
             f.write(str(i + 1))
 
-        time.sleep(random.uniform(2, 5)) # Random delay between stocks
+        time.sleep(random.uniform(2, 5))
 
 finally:
     if batch_list:
         try: sheet_data.batch_update(batch_list)
         except: pass
     driver.quit()
-    log("🏁 Scraping completed successfully")
+    log("🏁 Scraping session ended.")
