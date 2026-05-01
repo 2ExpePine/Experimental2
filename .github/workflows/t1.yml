@@ -23,7 +23,9 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install undetected-chromedriver selenium beautifulsoup4 gspread
-          # We remove webdriver-manager as it conflicts with undetected-chromedriver
+          # These are often needed for Chrome on Ubuntu runners
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libgconf-2-4 libxi6 libgbm1
 
       - name: Prepare Files
         run: |
