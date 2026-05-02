@@ -6,6 +6,7 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -32,10 +33,25 @@ jobs:
         run: |
           pip install selenium==4.21.0 webdriver-manager beautifulsoup4 gspread
 
-      - name: Prepare Files
+      # ✅ FIXED: Proper JSON writing (NO echo)
+      - name: Create credentials.json
         run: |
-          echo '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
-          echo '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
+          printf "%s" '${{ secrets.GSPREAD_CREDENTIALS }}' > credentials.json
+
+      - name: Create cookies.json
+        run: |
+          printf "%s" '${{ secrets.TRADINGVIEW_COOKIES }}' > cookies.json
+
+      # ✅ Optional debug (remove after testing)
+      - name: Debug JSON files
+        run: |
+          echo "---- credentials.json ----"
+          head -n 5 credentials.json
+          echo "---- cookies.json ----"
+          head -n 5 cookies.json
+
+      - name: Create checkpoint file
+        run: |
           FILE="checkpoint_group1_${{ matrix.shard }}.txt"
           if [ ! -f "$FILE" ]; then echo "0" > "$FILE"; fi
 
