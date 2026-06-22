@@ -207,7 +207,7 @@ def process_row(i, company_list, url_list, today):
 try:
     sheet_main, sheet_data = connect_sheets()
     company_list = sheet_main.col_values(1)
-    url_list = sheet_main.col_values(7)
+    url_list = sheet_main.col_values(5)
 
     log("✅ Sheet connected")
 
