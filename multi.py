@@ -82,7 +82,7 @@ def get_channels():
 
                 sql = """
                 SELECT *
-                FROM youtube_channels
+                FROM  wp_youtube_channels
                 WHERE active = 1
                 ORDER BY id ASC
                 """
